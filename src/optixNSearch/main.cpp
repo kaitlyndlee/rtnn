@@ -213,7 +213,9 @@ int main(int argc, char *argv[]) {
       // }
     }
 
+    Timing::startTiming("calculate distance sums");
     printf("Total Distance: %f\n", sumDistances(state, result_prims_by_batch));
+    Timing::stopTiming(true);
     
     // // Intersection of results array
     // unsigned int *result_array = (unsigned int *) malloc(state.numQueries * state.params.limit * sizeof(unsigned int));
