@@ -19,19 +19,23 @@ void search(RTNNState& state, int batch_id) {
 
       thrust::device_ptr<double> dist_buffer;
       if (state.currentDim == 0 && batch_id == 0) {
-        state.distances = (double *) malloc(state.numOfBatches * numQueries * state.numPoints * sizeof(double));
-        memset(state.distances, 0, state.numOfBatches * numQueries * state.numPoints * sizeof(double));
+        state.distances = (double **) malloc(state.dim / 3 * sizeof(double *));
+        for (int d = 0; d < state.dim / 3; d++) {
+          state.distances[d] = (double *) malloc(state.numOfBatches * numQueries * state.numPoints * sizeof(double));
+        }
+        
         allocThrustDevicePtr(&dist_buffer, state.numOfBatches * numQueries * state.numPoints, &state.d_pointers);
         state.params.distances = thrust::raw_pointer_cast(dist_buffer);
       }
+
+      memset(state.distances[state.currentDim], -1, state.numOfBatches * numQueries * state.numPoints * sizeof(double));
       CUDA_CHECK( cudaMemcpyAsync(
           state.params.distances,
-          state.distances,
+          state.distances[state.currentDim],
           state.numOfBatches * numQueries * state.numPoints * sizeof(double),
           cudaMemcpyHostToDevice,
           state.stream[batch_id]
           ) );
-      // state.params.distances = &state.params.distances[batch_id * state.numQueries * state.numPoints];
 
       if (state.qGasSortMode && !state.toGather) state.params.d_r2q_map = state.d_r2q_map[batch_id];
       else state.params.d_r2q_map = nullptr; // if no GAS-sorting or has done gather, this map is null.
@@ -60,7 +64,7 @@ void search(RTNNState& state, int batch_id) {
 
     Timing::startTiming("result copy D2H");
       CUDA_CHECK( cudaMemcpyAsync(
-                state.distances,
+                state.distances[state.currentDim],
                 state.params.distances,
                 state.numOfBatches * numQueries * state.numPoints * sizeof(double),
                 cudaMemcpyDeviceToHost,

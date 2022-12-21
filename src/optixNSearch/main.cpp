@@ -99,7 +99,7 @@ int main(int argc, char *argv[]) {
     allocateData(state, &d_points_ptr, &d_queries_ptr);
 
     // Create result array that stores the point ID of all points epsilon away by dimension.
-    unsigned int **result_prims_by_batch = (unsigned int **) malloc(state.numOfBatches / 3 * sizeof(unsigned int *));
+    unsigned int **result_prims_by_batch = (unsigned int **) malloc(state.numOfBatches * sizeof(unsigned int *));
     for (int b = 0; b < state.numOfBatches; b++) {
       result_prims_by_batch[b] = (unsigned int *) malloc(state.numQueries * state.params.limit * sizeof(unsigned int));
     }
@@ -108,15 +108,15 @@ int main(int argc, char *argv[]) {
       state.currentDim = dim;
 
       setPointsByDim(state, dim);
-      printf("----------\nInput Data\n");
-      for (int p = 0; p < state.numPoints; p++) {
-        std::cout << state.h_points[p].x << ", " << state.h_points[p].y << ", " << state.h_points[p].z << std::endl;
-      }
-      printf("----------\n");
-      for (int q = 0; q < state.numQueries; q++) {
-        std::cout << state.h_queries[q].x << ", " << state.h_queries[q].y << ", " << state.h_queries[q].z << std::endl;
-      }
-      printf("----------\n");
+      // printf("----------\nInput Data\n");
+      // for (int p = 0; p < state.numPoints; p++) {
+      //   std::cout << state.h_points[p].x << ", " << state.h_points[p].y << ", " << state.h_points[p].z << std::endl;
+      // }
+      // printf("----------\n");
+      // for (int q = 0; q < state.numQueries; q++) {
+      //   std::cout << state.h_queries[q].x << ", " << state.h_queries[q].y << ", " << state.h_queries[q].z << std::endl;
+      // }
+      // printf("----------\n");
 
       // Copy points/queries to device
       uploadData(state, &d_points_ptr, &d_queries_ptr);
@@ -206,11 +206,11 @@ int main(int argc, char *argv[]) {
         sanityCheck(state);
 
       // Store results in a result array
-      for (int b = 0; b < state.numOfBatches; b++) {
-        if (state.numActQueries[b] == 0)
-          continue;
-        result_prims_by_batch[b] = reinterpret_cast<unsigned int*>( state.h_res[b]);
-      }
+      // for (int b = 0; b < state.numOfBatches; b++) {
+      //   if (state.numActQueries[b] == 0)
+      //     continue;
+      //   result_prims_by_batch[b] = reinterpret_cast<unsigned int*>( state.h_res[b]);
+      // }
     }
 
     printf("Total Distance: %f\n", sumDistances(state, result_prims_by_batch));

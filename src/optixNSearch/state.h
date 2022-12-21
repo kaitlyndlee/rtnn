@@ -72,7 +72,7 @@ struct RTNNState {
   bool msr = true;
   bool sanCheck = false;
   int currentDim = 0;
-  double *distances;
+  double **distances;
 
   int32_t device_id = 0;
   std::string searchMode = "radius";
