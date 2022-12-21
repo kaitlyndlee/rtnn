@@ -10,12 +10,28 @@ void search(RTNNState& state, int batch_id) {
   Timing::startTiming("batch search time");
     Timing::startTiming("search compute");
       unsigned int numQueries = state.numActQueries[batch_id];
-
+      
       state.params.limit = state.knn;
       thrust::device_ptr<unsigned int> output_buffer;
       allocThrustDevicePtr(&output_buffer, numQueries * state.params.limit, &state.d_pointers);
       // unused slots will become UINT_MAX
       fillByValue(output_buffer, numQueries * state.params.limit, UINT_MAX);
+
+      thrust::device_ptr<double> dist_buffer;
+      if (state.currentDim == 0 && batch_id == 0) {
+        state.distances = (double *) malloc(state.numOfBatches * numQueries * state.numPoints * sizeof(double));
+        memset(state.distances, 0, state.numOfBatches * numQueries * state.numPoints * sizeof(double));
+        allocThrustDevicePtr(&dist_buffer, state.numOfBatches * numQueries * state.numPoints, &state.d_pointers);
+        state.params.distances = thrust::raw_pointer_cast(dist_buffer);
+      }
+      CUDA_CHECK( cudaMemcpyAsync(
+          state.params.distances,
+          state.distances,
+          state.numOfBatches * numQueries * state.numPoints * sizeof(double),
+          cudaMemcpyHostToDevice,
+          state.stream[batch_id]
+          ) );
+      // state.params.distances = &state.params.distances[batch_id * state.numQueries * state.numPoints];
 
       if (state.qGasSortMode && !state.toGather) state.params.d_r2q_map = state.d_r2q_map[batch_id];
       else state.params.d_r2q_map = nullptr; // if no GAS-sorting or has done gather, this map is null.
@@ -35,12 +51,22 @@ void search(RTNNState& state, int batch_id) {
       }
 
       state.params.radius = state.launchRadius[batch_id];
+      state.params.batchNum = batch_id;
+      state.params.numQueries = state.numQueries;
 
       launchSubframe( thrust::raw_pointer_cast(output_buffer), state, batch_id );
       OMIT_ON_E2EMSR( CUDA_CHECK( cudaStreamSynchronize( state.stream[batch_id] ) ) );
     Timing::stopTiming(true);
 
     Timing::startTiming("result copy D2H");
+      CUDA_CHECK( cudaMemcpyAsync(
+                state.distances,
+                state.params.distances,
+                state.numOfBatches * numQueries * state.numPoints * sizeof(double),
+                cudaMemcpyDeviceToHost,
+                state.stream[batch_id]
+                ) );
+                
       void* data;
       cudaMallocHost(reinterpret_cast<void**>(&data), numQueries * state.params.limit * sizeof(unsigned int));
       state.h_res[batch_id] = data;
@@ -57,7 +83,7 @@ void search(RTNNState& state, int batch_id) {
   Timing::stopTiming(true);
 
   // this frees device memory but will block until the previous optix launch finish and the res is written back.
-  //CUDA_CHECK( cudaFree( (void*)thrust::raw_pointer_cast(output_buffer) ) );
+  // CUDA_CHECK( cudaFree( (void*)thrust::raw_pointer_cast(output_buffer) ) );
 }
 
 thrust::device_ptr<unsigned int> initialTraversal(RTNNState& state, int batch_id) {

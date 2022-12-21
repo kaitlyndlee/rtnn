@@ -81,6 +81,8 @@
 # the name of the VS solution file.
 project(OptiX-Samples)
 
+set(CMAKE_VERBOSE_MAKEFILE ON)
+
 # This enforces a particular version of CMake that we require to process the script files
 # properly.  We rely on CXX_STANDARD, which was added in CMake 3.1.
 cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
@@ -335,7 +337,6 @@ function(OPTIX_add_sample_executable target_name_base target_name_var)
     # Create the rules to build the PTX and OBJ from the CUDA files.
     CUDA_WRAP_SRCS( ${target_name} PTX generated_files ${source_files} ${cmake_options} OPTIONS ${options} )
   endif()
-
 
   # Here is where we create the rule to make the executable.  We define a target name and
   # list all the source files used to create the target.  In addition we also pass along

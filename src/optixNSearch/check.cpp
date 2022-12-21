@@ -101,21 +101,28 @@ void sanityCheckKNN( RTNNState& state, int batch_id ) {
 }
 
 void sanityCheckRadius( RTNNState& state, int batch_id ) {
+  printf("SANITY CHECK\n-------------\n");
   // this is stateful in that it relies on state.params.limit
   // TODO: now use knn rather than limit. good?
-
+  double sum = 0;
   unsigned int totalNeighbors = 0;
   unsigned int totalWrongNeighbors = 0;
   double totalWrongDist = 0;
   for (unsigned int q = 0; q < state.numQueries; q++) {
+    // std::cout << "Query: " << q << std::endl;
     for (unsigned int n = 0; n < state.knn; n++) {
       unsigned int p = reinterpret_cast<unsigned int*>( state.h_res[batch_id] )[ q * state.knn + n ];
+
       //std::cout << p << std::endl; break;
       if (p == UINT_MAX) break;
       else {
+        // std::cout << "\tPoint: " << p << std::endl;
         totalNeighbors++;
         float3 diff = state.h_points[p] - state.h_queries[q];
-        float dists = dot(diff, diff);
+        double dists = dot(diff, diff);
+        fprintf(stdout, "Point %u [%f, %f, %f], query %u [%f, %f, %f], distance: %f.\n",
+            p, state.h_points[p].x, state.h_points[p].y, state.h_points[p].z,
+            q, state.h_queries[q].x, state.h_queries[q].y, state.h_queries[q].z, dists);
         if (dists > state.gRadius * state.gRadius) {
           fprintf(stdout, "Point %u [%f, %f, %f] is not a neighbor of query %u [%f, %f, %f]. Dist is %lf.\n",
             p, state.h_points[p].x, state.h_points[p].y, state.h_points[p].z,
@@ -123,7 +130,10 @@ void sanityCheckRadius( RTNNState& state, int batch_id ) {
             sqrt(dists));
           totalWrongNeighbors++;
           totalWrongDist += sqrt(dists);
-          exit(1);
+          // exit(1);
+        }
+        else {
+          sum += sqrt(dists);
         }
         //std::cout << sqrt(dists) << " ";
       }
@@ -131,6 +141,8 @@ void sanityCheckRadius( RTNNState& state, int batch_id ) {
     }
     //std::cout << "\n";
   }
+  std::cerr << "Total Sum: " << sum << std::endl;;
+  printf("---------------------\n");
 
   std::cerr << "Sanity check done." << std::endl;
   std::cerr << "Avg neighbor/query: " << (float)totalNeighbors/state.numQueries << std::endl;

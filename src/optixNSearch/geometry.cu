@@ -40,6 +40,7 @@ extern "C" __device__ bool check_intersect(SearchType mode)
   unsigned int primIdx = optixGetPrimitiveIndex();
   const float3 center = params.points[primIdx];
   const float3 ray_orig = optixGetWorldRayOrigin();
+  unsigned int queryIdx = optixGetPayload_0();
 
   bool intersect = false;
   if (mode == AABBTEST) {
@@ -60,10 +61,24 @@ extern "C" __device__ bool check_intersect(SearchType mode)
   } else {
     float3 O = ray_orig - center;
     float sqdist = dot(O, O);
+    unsigned int index = params.batchNum * params.numQueries * params.numPoints + queryIdx * params.numPoints + primIdx;
+    if (params.mode != NOTEST) {
+      printf("Q: %u, P: %u, Before: %f, After: %f\n", queryIdx, primIdx, params.distances[index], params.distances[index] + sqdist);
+      params.distances[index] += sqdist;
+    }
 
     // first check excludes the query itself; same as (ray_orig != center)
-    if (sqdist < params.radius * params.radius)
-      intersect = true;
+    if (params.mode != NOTEST) {
+      if (params.distances[index] < params.radius * params.radius) {
+        printf("Point: %d, [%f, %f, %f] queryIdx: %d, [%f, %f, %f], dist: %f\n", primIdx, center.x, center.y, center.z, queryIdx, ray_orig.x, ray_orig.y, ray_orig.z, params.distances[queryIdx * params.numPoints + primIdx]);
+        intersect = true;
+      }
+    }
+    else {
+      if (sqdist < params.radius * params.radius) {
+        intersect = true;
+      }
+    }
   }
 
   return intersect;

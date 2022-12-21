@@ -28,104 +28,111 @@
 
 #pragma once
 
+#include "optixNSearch.h"
 #include <float.h>
-#include <vector_types.h>
 #include <optix_types.h>
 #include <unordered_set>
-#include "optixNSearch.h"
+#include <vector_types.h>
 
-// the SDK cmake defines NDEBUG in the Release build, but we still want to use assert
+// the SDK cmake defines NDEBUG in the Release build, but we still want to use
+// assert
 // TODO: fix it in cmake files?
 #undef NDEBUG
 #include <assert.h>
 
-#define OMIT_ON_E2EMSR(x) \
-  if (state.msr == 0) x   \
+#define OMIT_ON_E2EMSR(x)                                                      \
+  if (state.msr == 0)                                                          \
+  x
 
-struct RTNNState
-{
-    OptixDeviceContext          context                   = 0;
-    OptixTraversableHandle*     gas_handle                = nullptr;
-    CUdeviceptr*                d_gas_output_buffer       = nullptr;
+struct RTNNState {
+  OptixDeviceContext context = 0;
+  OptixTraversableHandle *gas_handle = nullptr; // Geometry Accel Structure
+  CUdeviceptr *d_gas_output_buffer = nullptr;
 
-    OptixModule                 geometry_module           = 0;
-    OptixModule                 camera_module             = 0;
+  OptixModule geometry_module = 0;
+  OptixModule camera_module = 0;
 
-    OptixProgramGroup           raygen_prog_group         = 0;
-    OptixProgramGroup           radiance_miss_prog_group  = 0;
-    OptixProgramGroup           radiance_metal_sphere_prog_group  = 0;
+  OptixProgramGroup raygen_prog_group = 0;
+  OptixProgramGroup radiance_miss_prog_group = 0;
+  OptixProgramGroup radiance_metal_sphere_prog_group = 0;
 
-    OptixPipeline*              pipeline                  = nullptr;
-    OptixPipelineCompileOptions pipeline_compile_options  = {};
+  OptixPipeline *pipeline = nullptr;
+  OptixPipelineCompileOptions pipeline_compile_options = {};
 
-    cudaStream_t*               stream                    = nullptr;
-    Params                      params;
-    Params*                     d_params                  = nullptr;
+  cudaStream_t *stream = nullptr;
+  Params params;
+  Params *d_params = nullptr;
 
-    float3*                     h_points                  = nullptr;
-    float3*                     h_queries                 = nullptr;
-    float3**                    h_ndpoints                = nullptr;
-    float3**                    h_ndqueries               = nullptr;
-    int                         dim;
-    bool                        msr                       = true;
-    bool                        sanCheck                  = false;
+  float3 *h_points = nullptr;
+  float3 *h_queries = nullptr;
+  float3 **h_ndpoints = nullptr;
+  float3 **h_ndqueries = nullptr;
+  // what is this used for?
+  int dim;
+  bool msr = true;
+  bool sanCheck = false;
+  int currentDim = 0;
+  double *distances;
 
-    int32_t                     device_id                 = 0;
-    std::string                 searchMode                = "radius";
-    std::string                 pfile;
-    std::string                 qfile;
-    unsigned int                knn                       = 50;
-    float                       gRadius                   = 2.0;
-    float                       radius                    = 2.0;
-    int                         qGasSortMode              = 2; // no GAS-based sort vs. 1D vs. ID
-    int                         pointSortMode             = 1; // no sort vs. morton order vs. raster order vs. 1D order
-    int                         querySortMode             = 1; // no sort vs. morton order vs. raster order vs. 1D order
-    float                       crRatio                   = 8; // cellSize = radius / crRatio
-    float                       gsrRatio                  = 1;
-    bool                        toGather                  = false;
-    bool                        samepq                    = false;
-    bool                        sameData                  = false;
-    bool                        interleave                = true;
-    bool                        partition                 = true;
-    bool                        autoNB                    = true;
-    bool                        autoCR                    = true;
-    int                         approxMode                = 2;
-    int                         mcScale                   = 4;
-    float                       crStep                    = 1.01;
-    bool                        deferFree                 = true;
-    bool                        filterQueries             = false;
+  int32_t device_id = 0;
+  std::string searchMode = "radius";
+  std::string pfile;
+  std::string qfile;
+  unsigned int knn = 50;
+  float gRadius = 2.0;
+  float radius = 2.0;
+  int qGasSortMode = 2; // no GAS-based sort vs. 1D vs. ID
+  int pointSortMode =
+      1; // no sort vs. morton order vs. raster order vs. 1D order
+  int querySortMode =
+      1;             // no sort vs. morton order vs. raster order vs. 1D order
+  float crRatio = 8; // cellSize = radius / crRatio
+  float gsrRatio = 1;
+  bool toGather = false;
+  bool samepq = false;
+  bool sameData = false;
+  bool interleave = true;
+  bool partition = true;
+  bool autoNB = true;
+  bool autoCR = true;
+  int approxMode = 2;
+  int mcScale = 4;
+  float crStep = 1.01;
+  bool deferFree = true;
+  bool filterQueries = false;
 
-    unsigned int                numPoints                 = 0;
-    unsigned int                numQueries                = 0;
-    unsigned int**              d_r2q_map                 = nullptr;
-    unsigned int*               numActQueries             = nullptr;
-    float*                      launchRadius              = nullptr;
-    void**                      h_res                     = nullptr;
-    float3**                    d_actQs                   = nullptr;
-    float3**                    h_actQs                   = nullptr;
-    void**                      d_aabb                    = nullptr;
-    void**                      d_temp_buffer_gas         = nullptr;
-    void**                      d_buffer_temp_output_gas_and_compacted_size = nullptr;
-    void*                       d_CellParticleCounts_ptr_p = nullptr;
-    void*                       d_CellOffsets_ptr_p       = nullptr;
-    float3*                     h_fltQs                   = nullptr;
-    unsigned int                numFltQs                  = 0;
+  unsigned int enteredNumPoints = -1;
+  unsigned int numPoints = 0;
+  unsigned int numQueries = 0;
+  unsigned int **d_r2q_map = nullptr;
+  unsigned int *numActQueries = nullptr;
+  float *launchRadius = nullptr;
+  void **h_res = nullptr;
+  float3 **d_actQs = nullptr;
+  float3 **h_actQs = nullptr;
+  void **d_aabb = nullptr;
+  void **d_temp_buffer_gas = nullptr;
+  void **d_buffer_temp_output_gas_and_compacted_size = nullptr;
+  void *d_CellParticleCounts_ptr_p = nullptr;
+  void *d_CellOffsets_ptr_p = nullptr;
+  float3 *h_fltQs = nullptr;
+  unsigned int numFltQs = 0;
 
-    std::unordered_set<void*>   d_pointers;
-    std::unordered_set<void*>   d_gridPointers;
+  std::unordered_set<void *> d_pointers;
+  std::unordered_set<void *> d_gridPointers;
 
-    int                         numOfBatches              = -1;
-    int                         maxBatchCount             = 1;
-    float                       totDRAMSize               = 0; // GB
-    float                       gpuMemUsed                = 0; // MB
-    float                       estGasSize                = -1; // MB
+  int numOfBatches = -1;
+  int maxBatchCount = 1;
+  float totDRAMSize = 0; // GB
+  float gpuMemUsed = 0;  // MB
+  float estGasSize = -1; // MB
 
-    float3                      pMin;
-    float3                      pMax;
-    float3                      qMin;
-    float3                      qMax;
-    float3                      Min;
-    float3                      Max;
+  float3 pMin;
+  float3 pMax;
+  float3 qMin;
+  float3 qMax;
+  float3 Min;
+  float3 Max;
 
-    OptixShaderBindingTable     sbt                       = {};
+  OptixShaderBindingTable sbt = {};
 };

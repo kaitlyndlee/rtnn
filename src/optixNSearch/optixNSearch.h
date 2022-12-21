@@ -61,7 +61,10 @@ struct Params
     unsigned int*    d_r2q_map;
     unsigned int     limit; // 1 for the initial run to sort indices; knn for future runs.
     SearchType       mode;
-
+    double*          distances; 
+    unsigned int     numPoints;
+    unsigned int     numQueries;
+    unsigned int     batchNum;
     OptixTraversableHandle handle;
 };
 

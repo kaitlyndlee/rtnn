@@ -100,7 +100,8 @@ thrust::device_ptr<unsigned int> sortQueriesByFHIdx(RTNNState&, thrust::device_p
 void gatherQueries(RTNNState&, thrust::device_ptr<unsigned int>, int);
 
 void kGenAABB(float3*, float, unsigned int, OptixAabb*, cudaStream_t);
-void uploadData(RTNNState&);
+void uploadData(RTNNState&, thrust::device_ptr<float3>*, thrust::device_ptr<float3>*);
+void allocateData(RTNNState&, thrust::device_ptr<float3>*, thrust::device_ptr<float3>*);
 void createGeometry(RTNNState&, int, float);
 void launchSubframe(unsigned int*, RTNNState&, int);
 void initLaunchParams(RTNNState&);
@@ -113,6 +114,8 @@ float radiusEquiVolume(float, int);
 int tokenize(std::string, std::string, float3**, unsigned int);
 void parseArgs(RTNNState&, int, char**);
 void readData(RTNNState&);
+void readDataByDim(RTNNState&);
+void setPointsByDim(RTNNState&, int);
 void initBatches(RTNNState&);
 bool isClose(float3, float3);
 void freeGridPointers(RTNNState&);
@@ -120,3 +123,12 @@ void freeGridPointers(RTNNState&);
 void search(RTNNState&, int);
 void gasSortSearch(RTNNState&, int);
 thrust::device_ptr<unsigned int> initialTraversal(RTNNState&);
+
+void calcIntersection(unsigned int **data, 
+                                         unsigned int *result, 
+                                         const int numDims, 
+                                         const int numQueries, 
+                                         const int limit);
+double calcDistSums(RTNNState state, unsigned int *check);
+double calcDistSumsBruteForce(RTNNState state);
+double sumDistances(RTNNState state, unsigned int **check);
