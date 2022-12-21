@@ -99,14 +99,12 @@ int main(int argc, char *argv[]) {
     allocateData(state, &d_points_ptr, &d_queries_ptr);
 
     // Create result array that stores the point ID of all points epsilon away by dimension.
-    unsigned int **result_prims_by_batch = (unsigned int **) malloc(state.numOfBatches * sizeof(unsigned int *));
-    for (int b = 0; b < state.numOfBatches; b++) {
-      result_prims_by_batch[b] = (unsigned int *) malloc(state.numQueries * state.params.limit * sizeof(unsigned int));
+    unsigned int **result_prims_by_dim = (unsigned int **) malloc(state.dim / 3 * sizeof(unsigned int *));
+    for (int dim = 0; dim < state.dim / 3; dim += 3) {
+      result_prims_by_dim[dim] = (unsigned int *) malloc(state.numQueries * state.params.limit * sizeof(unsigned int));
     }
 
     for (int dim = 0; dim < state.dim / 3; dim++) {
-      state.currentDim = dim;
-
       setPointsByDim(state, dim);
       // printf("----------\nInput Data\n");
       // for (int p = 0; p < state.numPoints; p++) {
@@ -206,48 +204,44 @@ int main(int argc, char *argv[]) {
         sanityCheck(state);
 
       // Store results in a result array
-      // for (int b = 0; b < state.numOfBatches; b++) {
-      //   if (state.numActQueries[b] == 0)
-      //     continue;
-      //   result_prims_by_batch[b] = reinterpret_cast<unsigned int*>( state.h_res[b]);
-      // }
+      result_prims_by_dim[dim] = reinterpret_cast<unsigned int*>( state.h_res[0]);
+
+      // Set this because of future assert.
+      state.numOfBatches = -1;
     }
-
-    printf("Total Distance: %f\n", sumDistances(state, result_prims_by_batch));
     
-    // // Intersection of results array
-    // unsigned int *result_array = (unsigned int *) malloc(state.numQueries * state.params.limit * sizeof(unsigned int));
-    // memset(result_array, UINT_MAX, state.numQueries * state.params.limit * sizeof(unsigned int));
-    // Timing::startTiming("calculate intersections of neighboring points");
-    // calcIntersection(result_prims_by_dim, result_array, state.dim, state.numQueries, state.params.limit);
-    // Timing::stopTiming(true);
+    // Intersection of results array
+    unsigned int *result_array = (unsigned int *) malloc(state.numQueries * state.params.limit * sizeof(unsigned int));
+    memset(result_array, UINT_MAX, state.numQueries * state.params.limit * sizeof(unsigned int));
+    Timing::startTiming("calculate intersections of neighboring points");
+    calcIntersection(result_prims_by_dim, result_array, state.dim, state.numQueries, state.params.limit);
+    Timing::stopTiming(true);
 
-    // // printf("Resulting points: \n");
-    // // for (int i = 0; i < state.numQueries; i++) {
-    // //   printf("Query point: %u\n", i);
-    // //   for (int j = 0; j < state.params.limit; j++) {
-    // //     if (result_array[i * state.params.limit + j] == UINT_MAX) {
-    // //       break;
-    // //     }
-    // //     printf("\tPoint: %u\n", result_array[i * state.params.limit + j]);
-    // //   }
-    // // }
+    // printf("Resulting points: \n");
+    // for (int i = 0; i < state.numQueries; i++) {
+    //   printf("Query point: %u\n", i);
+    //   for (int j = 0; j < state.params.limit; j++) {
+    //     if (result_array[i * state.params.limit + j] == UINT_MAX) {
+    //       break;
+    //     }
+    //     printf("\tPoint: %u\n", result_array[i * state.params.limit + j]);
+    //   }
+    // }
 
-    // // CUDA-based distance calculations
-    // Timing::startTiming("calculate distance sums");
-    // double totalSum = calcDistSums(state, result_array);
-    // Timing::stopTiming(true);
+    // CUDA-based distance calculations
+    Timing::startTiming("calculate distance sums");
+    double totalDist = calcDistSums(state, result_array);
+    Timing::stopTiming(true);
 
     CUDA_SYNC_CHECK();
     Timing::stopTiming(true);
 
     Timing::startTiming("calculate distance sums brute force");
-    double totalSum = calcDistSumsBruteForce(state);
+    double totalDistBF = calcDistSumsBruteForce(state);
     Timing::stopTiming(true);
 
-    // printf("\nTotal Distance Sum: %f\n", totalSum);
-    printf("Total Distance Sum Brute Force: %f\n", totalSum);
-
+    printf("\nTotal Distance Sum: %f\n", totalDist);
+    printf("Total Distance Sum Brute Force: %f\n", totalDistBF);
       
     cleanupState(state);
   } catch (std::exception &e) {

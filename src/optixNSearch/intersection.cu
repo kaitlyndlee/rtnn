@@ -217,32 +217,32 @@ void flattenArray(float3 **in, float3 *out, int i_size, int j_size) {
   }
 }
 
-double sumDistances(RTNNState state, unsigned int **check) {
-  int index = 0;
-  double *totalSum = (double *) malloc(state.numQueries * sizeof(double));
-  double totalDist = 0;
+// double sumDistances(RTNNState state, unsigned int **check) {
+//   int index = 0;
+//   double *totalSum = (double *) malloc(state.numQueries * sizeof(double));
+//   double totalDist = 0;
   
-  for (int b = 0; b < state.numOfBatches; b++) {
-    for (int q = 0; q < state.numQueries; q++) {
-      totalSum[q] = 0;
-      for (int p = 0; p < state.numPoints; p++) {
-        for (int d = 0; d < state.dim / 3; d++) {
-          // index = check[b][get2DIndex(q, p, state.params.limit)];
-          // if (index == UINT_MAX) {
-          //   continue;
-          // }
-          if (isnan(state.distances[d][get3DIndex(b, q, p, state.numQueries, state.numPoints)])) {
-            continue;
-          }
-          totalSum[q] += state.distances[d][get3DIndex(b, q, p, state.numQueries, state.numPoints)];
-          // printf("Query %u, Point %u, Index, %u, Squared distance: %f\n", q, p, index, state.distances[d][get3DIndex(b, q, index, state.numQueries, state.numPoints)]);
-        }
-      }
-      if (totalSum[q] < state.radius * state.radius) {
-        // printf("Distance: %f\n", sqrt(totalSum[q]));
-        totalDist += sqrt(totalSum[q]);
-      }
-    }
-  }
-  return totalDist;
-}
+//   for (int b = 0; b < state.numOfBatches; b++) {
+//     for (int q = 0; q < state.numQueries; q++) {
+//       totalSum[q] = 0;
+//       for (int p = 0; p < state.numPoints; p++) {
+//         for (int d = 0; d < state.dim / 3; d++) {
+//           // index = check[b][get2DIndex(q, p, state.params.limit)];
+//           // if (index == UINT_MAX) {
+//           //   continue;
+//           // }
+//           if (isnan(state.distances[d][get3DIndex(b, q, p, state.numQueries, state.numPoints)])) {
+//             continue;
+//           }
+//           totalSum[q] += state.distances[d][get3DIndex(b, q, p, state.numQueries, state.numPoints)];
+//           // printf("Query %u, Point %u, Index, %u, Squared distance: %f\n", q, p, index, state.distances[d][get3DIndex(b, q, index, state.numQueries, state.numPoints)]);
+//         }
+//       }
+//       if (totalSum[q] < state.radius * state.radius) {
+//         // printf("Distance: %f\n", sqrt(totalSum[q]));
+//         totalDist += sqrt(totalSum[q]);
+//       }
+//     }
+//   }
+//   return totalDist;
+// }

@@ -568,7 +568,6 @@ void launchSubframe(unsigned int *output_buffer, RTNNState &state,
   state.params.handle = state.gas_handle[batch_id];
   state.params.queries = state.d_actQs[batch_id];
   state.params.frame_buffer = output_buffer;
-  state.params.numPoints = state.numPoints;
 
   fprintf(stdout, "\tLaunch %u (%.4f%%) queries\n", numQueries,
           (float)numQueries / (float)state.numQueries * 100.0);
