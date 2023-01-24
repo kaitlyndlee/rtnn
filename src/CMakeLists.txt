@@ -357,6 +357,8 @@ function(OPTIX_add_sample_executable target_name_base target_name_var)
     COMPILE_DEFINITIONS
     "OPTIX_SAMPLE_NAME_DEFINE=${target_name};OPTIX_SAMPLE_DIR_DEFINE=${target_name}" )
 
+  target_link_libraries( ${target_name} "-fopenmp" )
+
   if( UNIX AND NOT APPLE )
     # Force using RPATH instead of RUNPATH on Debian
     target_link_libraries( ${target_name} "-Wl,--disable-new-dtags" )

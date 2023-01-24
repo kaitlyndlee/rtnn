@@ -104,6 +104,7 @@ int main(int argc, char *argv[]) {
       result_prims_by_dim[dim] = (unsigned int *) malloc(state.numQueries * state.params.limit * sizeof(unsigned int));
     }
 
+    Timing::startTiming("total search time");
     for (int dim = 0; dim < state.dim / 3; dim++) {
       setPointsByDim(state, dim);
       // printf("----------\nInput Data\n");
@@ -127,8 +128,6 @@ int main(int argc, char *argv[]) {
       // Create context, pipeline, and SBT
       // TODO: K: move outside of loop
       setupOptiX(state);
-
-      Timing::startTiming("total search time");
 
       // TODO: streamline the logic of partition and sorting.
       sortParticles(state, QUERY, state.querySortMode);
@@ -228,12 +227,12 @@ int main(int argc, char *argv[]) {
     //   }
     // }
 
+    CUDA_SYNC_CHECK();
+    Timing::stopTiming(true);
+
     // CUDA-based distance calculations
     Timing::startTiming("calculate distance sums");
     double totalDist = calcDistSums(state, result_array);
-    Timing::stopTiming(true);
-
-    CUDA_SYNC_CHECK();
     Timing::stopTiming(true);
 
     Timing::startTiming("calculate distance sums brute force");

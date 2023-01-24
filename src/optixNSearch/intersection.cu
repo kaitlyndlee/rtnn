@@ -1,5 +1,6 @@
 #include <stdio.h>
 #include "state.h"
+#include <omp.h>
 
 __device__ double sqr(float value);
 __device__ int isIn(unsigned int *in, unsigned int value, size_t in_size);
@@ -91,8 +92,8 @@ double calcDistSums(RTNNState state, unsigned int *check) {
   return totalSum;
 }
 
-// TODO: Split work by blocks
 double calcDistSumsBruteForce(RTNNState state) {
+  double total_time = omp_get_wtime();
   double *sums;
   float3 *d_points;
   float3 *d_queries;
@@ -107,8 +108,10 @@ double calcDistSumsBruteForce(RTNNState state) {
   cudaMemcpy(d_queries, flattenedQueries, state.numQueries * state.dim * sizeof(float3), cudaMemcpyHostToDevice);
   cudaMallocManaged((void **) &sums, state.numQueries * state.numPoints * sizeof(double));
 
+  double search_time = omp_get_wtime();
   findClosestPointsBruteForce<<<state.numQueries, state.numPoints>>>(d_points, d_queries, sums, state.radius, state.dim, state.numPoints, state.numQueries, state.params.limit);
   cudaDeviceSynchronize();
+  search_time = omp_get_wtime() - search_time;
 
   double totalSum = 0;
   for (int i = 0; i < state.numQueries * state.numPoints; i++) {
@@ -119,6 +122,8 @@ double calcDistSumsBruteForce(RTNNState state) {
   cudaFree(d_points);
   cudaFree(d_queries);
   cudaFree(sums);
+  total_time = omp_get_wtime() - total_time - search_time;
+  printf("time brute force overhead: %f\n", total_time);
   return totalSum;
 }
 
