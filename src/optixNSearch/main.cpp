@@ -104,6 +104,7 @@ int main(int argc, char *argv[]) {
       result_prims_by_batch[b] = (unsigned int *) malloc(state.numQueries * state.params.limit * sizeof(unsigned int));
     }
 
+    Timing::startTiming("total search time");
     for (int dim = 0; dim < state.dim / 3; dim++) {
       state.currentDim = dim;
 
@@ -129,8 +130,6 @@ int main(int argc, char *argv[]) {
       // Create context, pipeline, and SBT
       // TODO: K: move outside of loop
       setupOptiX(state);
-
-      Timing::startTiming("total search time");
 
       // TODO: streamline the logic of partition and sorting.
       sortParticles(state, QUERY, state.querySortMode);
