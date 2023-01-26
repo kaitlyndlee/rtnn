@@ -175,6 +175,7 @@ void uploadData(RTNNState &state, thrust::device_ptr<float3> *d_points_ptr, thru
   Timing::stopTiming(true);
 }
 
+// TODO: K: why does this take so long?
 void allocateData(RTNNState &state, thrust::device_ptr<float3> *d_points_ptr, thrust::device_ptr<float3> *d_queries_ptr) {
   Timing::startTiming("alllocate points and/or queries");
 

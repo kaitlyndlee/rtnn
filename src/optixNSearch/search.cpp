@@ -41,8 +41,11 @@ void search(RTNNState& state, int batch_id) {
     Timing::stopTiming(true);
 
     Timing::startTiming("result copy D2H");
-      void* data;
+      unsigned int* data;
       cudaMallocHost(reinterpret_cast<void**>(&data), numQueries * state.params.limit * sizeof(unsigned int));
+      for (int i = 0; i < numQueries * state.params.limit; i++) {
+        data[i] = UINT_MAX;
+      }
       state.h_res[batch_id] = data;
 
       CUDA_CHECK( cudaMemcpyAsync(

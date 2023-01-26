@@ -124,7 +124,7 @@ void search(RTNNState&, int);
 void gasSortSearch(RTNNState&, int);
 thrust::device_ptr<unsigned int> initialTraversal(RTNNState&);
 
-void calcIntersection(unsigned int **data, 
+void calcIntersection(unsigned int *data, 
                                          unsigned int *result, 
                                          const int numDims, 
                                          const int numQueries, 
@@ -132,3 +132,7 @@ void calcIntersection(unsigned int **data,
 double calcDistSums(RTNNState state, unsigned int *check);
 double calcDistSumsBruteForce(RTNNState state);
 double sumDistances(RTNNState state, unsigned int **check);
+double calcDistSumsOmp(RTNNState state, unsigned int *check);
+
+__device__ __host__ int get3DIndex(int i, int j, int k, int j_size, int k_size);
+__device__ __host__ int get2DIndex(int i, int j, int j_size);

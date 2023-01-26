@@ -2,22 +2,22 @@
 #include "state.h"
 #include <omp.h>
 
-__device__ double sqr(float value);
+//TODO: K: inline?
+__device__  __host__ int get3DIndex(int i, int j, int k, int j_size, int k_size) {
+  return i*j_size*k_size + j*k_size + k;
+}
+__device__  __host__ int get2DIndex(int i, int j, int j_size) {
+  return i*j_size + j;
+}
+
+__device__ __host__ double sqr(float value);
 __device__ int isIn(unsigned int *in, unsigned int value, size_t in_size);
 __global__ void findClosestPoints(float3 *points, float3 *queries, unsigned int *check, double *sums, const double epsilon, const int numDims, const int numPoints, const int numQueries, const int limit);
 __global__ void findClosestPointsBruteForce(float3 *points, float3 *queries, double *sums, const double epsilon, const int numDims, const int numPoints, const int numQueries, const int limit);
 
 void flattenArray(float3 **in, float3 *out, int i_size, int j_size);
 
-__host__ __device__ static inline int get3DIndex(int i, int j, int k, int j_size, int k_size) {
-  return i*j_size*k_size + j*k_size + k;
-}
-
-__host__ __device__ static inline int get2DIndex(int i, int j, int j_size) {
-  return i*j_size + j;
-}
-
-void calcIntersection(unsigned int **data, 
+void calcIntersection(unsigned int *data, 
                       unsigned int *result, 
                       const int numDims, 
                       const int numQueries, 
@@ -28,7 +28,8 @@ void calcIntersection(unsigned int **data,
   for (int q = 0; q < numQueries; q++) {
     // Grab first point for the first dimension
     for (int point = 0; point < limit; point++) {
-      value = data[0][limit * q + point];
+      value = data[get3DIndex(0, q, point, numQueries, limit)];
+      // [0][limit * q + point];
       if (value == UINT_MAX) {
         break;
       }
@@ -37,11 +38,14 @@ void calcIntersection(unsigned int **data,
         // printf("\tDim: %d\n", dim);
         // For all points in the next dim
         for (int p = 0; p < limit; p++) {
-          if ( data[dim][limit * q + p] == UINT_MAX) {
+          // if ( data[dim][limit * q + p] == UINT_MAX) {
+          //   break;
+          // }
+          if (data[get3DIndex(dim, q, p, numQueries, limit)] == UINT_MAX) {
             break;
           }
           // printf("\t\tPoint: %d, value: %u\n", p, data[dim][limit * q + p]);
-          if (value == data[dim][limit * q + p])
+          if (value == data[get3DIndex(dim, q, p, numQueries, limit)])
           check = 1;
         }
         if (!check) {
@@ -49,12 +53,51 @@ void calcIntersection(unsigned int **data,
         }
       }
       if (check) {
-        result[limit * q + write_index] = value;
+        result[get2DIndex(q, write_index, limit)] = value;
         write_index++;
       }
     }
     write_index = 0;
   }
+}
+
+double calcDistSumsOmp(RTNNState state, unsigned int *check) {
+  double totalSum = 0;
+
+  // // Max dimensions is 15 for now.
+  // float3 query[5];
+  
+  // for (int q = 0; q < state.numQueries; q++) {
+  //   for (int dim = 0; dim < state.dim / 3; dim++) {
+  //     query[dim] = state.h_ndqueries[dim][q];
+  //   }
+    
+  //   float3 point;
+  //   for (int p = 0; p < state.params.limit; p++) {
+  //     double sum = 0;
+  //     int index = check[get2DIndex(q, p, state.params.limit)];
+  //     if (index == UINT_MAX) {
+  //       break;
+  //     }
+
+  //     for (int dim = 0; dim < state.dim / 3; dim++) {
+  //       point = state.h_ndpoints[dim][index];
+  //       if (point.x == query[dim].x && point.y == query[dim].y && point.z == query[dim].z) {
+  //         continue;
+  //       }
+  //       // printf("Query %u: [%f, %f, %f], Point %u: [%f, %f, %f], distance: %f\n", tid, query[dim].x, query[dim].y, query[dim].z, i, point.x, point.y, point.z, dot(query[dim] - point, query[dim] - point));
+  //       sum += sqr(point.x - query[dim].x);
+  //       sum += sqr(point.y - query[dim].y);
+  //       sum += sqr(point.z - query[dim].z);
+  //     }
+
+  //     double distance = sqrt(sum);
+  //     if (distance <= state.radius) {
+  //       totalSum += distance;
+  //     }
+  //   }
+  // }
+  return totalSum;
 }
 
 // Add batching
@@ -210,7 +253,7 @@ __device__ int isIn(unsigned int *in, unsigned int value, size_t in_size) {
   return check;
 }
 
-__device__ double sqr(float value) {
+__host__ __device__ double sqr(float value) {
   return value * value;
 }
 
