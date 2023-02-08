@@ -30,6 +30,7 @@
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/thrust_helper.cu PROPERTIES CUDA_SOURCE_PROPERTY_FORMAT OBJ)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/grid.cu PROPERTIES CUDA_SOURCE_PROPERTY_FORMAT OBJ)
 set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/aabb.cu PROPERTIES CUDA_SOURCE_PROPERTY_FORMAT OBJ)
+set_source_files_properties(${CMAKE_CURRENT_SOURCE_DIR}/cudaSearch.cu PROPERTIES CUDA_SOURCE_PROPERTY_FORMAT OBJ)
 
 OPTIX_add_sample_executable( optixNSearch target_name
   main.cpp
@@ -48,6 +49,7 @@ OPTIX_add_sample_executable( optixNSearch target_name
   grid.h
   helper_linearIndex.h
   helper_mortonCode.h
+  cudaSearch.cu
   #OPTIONS -rdc true
 )
 

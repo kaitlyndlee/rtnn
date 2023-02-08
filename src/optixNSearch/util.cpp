@@ -52,7 +52,7 @@ int tokenize(std::string s, std::string del, float3** ndpoints, unsigned int lin
   return dim;
 }
 
-float3** read_pc_data(const char* data_file, unsigned int* N, int* d) {
+float3** read_pc_data(const char* data_file, uint64_t* N, int* d) {
   std::ifstream file;
 
   file.open(data_file);
@@ -62,7 +62,7 @@ float3** read_pc_data(const char* data_file, unsigned int* N, int* d) {
   }
 
   char line[1024];
-  unsigned int lines = 0;
+  uint64_t lines = 0;
   int dim = 0;
 
   while (file.getline(line, 1024)) {
@@ -98,7 +98,7 @@ float3** read_pc_data(const char* data_file, unsigned int* N, int* d) {
   return ndpoints;
 }
 
-float3* read_pc_data(const char* data_file, unsigned int* N) {
+float3* read_pc_data(const char* data_file, uint64_t* N, uint64_t enteredNumPoints) {
   std::ifstream file;
 
   file.open(data_file);
@@ -108,9 +108,12 @@ float3* read_pc_data(const char* data_file, unsigned int* N) {
   }
 
   char line[1024];
-  unsigned int lines = 0;
+  uint64_t lines = 0;
 
   while (file.getline(line, 1024)) {
+    if (lines == enteredNumPoints) {
+      break;
+    }
     lines++;
   }
   file.clear();
@@ -121,12 +124,16 @@ float3* read_pc_data(const char* data_file, unsigned int* N) {
 
   lines = 0;
   while (file.getline(line, 1024)) {
+    int point;
     double x, y, z;
 
-    sscanf(line, "%lf,%lf,%lf\n", &x, &y, &z);
+    sscanf(line, "%d %lf %lf %lf\n", &point, &x, &y, &z);
     t_points[lines] = make_float3(x, y, z);
-    //std::cerr << t_points[lines].x << ", " << t_points[lines].y << ", " << t_points[lines].z << std::endl;
+    // std::cerr << t_points[lines].x << ", " << t_points[lines].y << ", " << t_points[lines].z << std::endl;
     lines++;
+    if (lines == enteredNumPoints) {
+      break;
+    }
   }
 
   file.close();
@@ -357,6 +364,18 @@ void parseArgs( RTNNState& state,  int argc, char* argv[] ) {
               printUsageAndExit( argv[0] );
           }
       }
+      else if( arg == "--numPoints " || arg == "-np" )
+      {
+          if( i >= argc - 1 )
+              printUsageAndExit( argv[0] );
+          state.enteredNumPoints = std::atoi(argv[++i]);
+      }
+      else if( arg == "--numQueries " || arg == "-nq" )
+      {
+          if( i >= argc - 1 )
+              printUsageAndExit( argv[0] );
+          state.enteredNumQueries = std::atoi(argv[++i]);
+      }
       else
       {
           std::cerr << "Unknown option '" << argv[i] << "'\n";
@@ -368,7 +387,8 @@ void parseArgs( RTNNState& state,  int argc, char* argv[] ) {
   if (state.searchMode == "knn")
     state.knn = K; // a macro
 
-  state.sameData = (state.qfile.empty() || (state.qfile == state.pfile));
+  // state.sameData = (state.qfile.empty() || (state.qfile == state.pfile));
+  state.sameData = (state.qfile.empty());
   bool sameSortMode = (state.pointSortMode == state.querySortMode);
 
   // samepq indicates whether queries and points share the same host and device
@@ -383,14 +403,15 @@ void parseArgs( RTNNState& state,  int argc, char* argv[] ) {
 }
 
 void readData(RTNNState& state) {
-  state.h_points = read_pc_data(state.pfile.c_str(), &state.numPoints);
+  state.h_points = read_pc_data(state.pfile.c_str(), &state.numPoints, state.enteredNumPoints);
   state.h_queries = state.h_points;
   state.numQueries = state.numPoints;
 
   if (!state.samepq) { // if can't share the host memory
-    if (!state.qfile.empty() && (state.qfile != state.pfile)) {
+    // if (!state.qfile.empty() && (state.qfile != state.pfile)) {
+    if (!state.qfile.empty()) {
       // if the underlying data are different, read it
-      state.h_queries = read_pc_data(state.qfile.c_str(), &state.numQueries);
+      state.h_queries = read_pc_data(state.qfile.c_str(), &state.numQueries, state.enteredNumQueries);
     } else {
       // if underlying data are the same, copy it
       state.h_queries = (float3*)malloc(state.numQueries * sizeof(float3));
@@ -548,6 +569,24 @@ float estSortLtdSize(RTNNState& state,
   return cellSize;
 }
 
+float calcMemUsage(RTNNState& state) {
+  unsigned int N = state.numPoints;
+  unsigned int Q = state.numQueries;
+
+  // conservatively include both points and queries and one more copy for partitioned queries
+  int count = Q;
+  if (!state.samepq) count += N;
+  if (state.partition) count += Q;
+  float particleDataSize = count * sizeof(float3);
+
+  // +1 to include the space for initial search which always returns 1 element
+  float returnDataSize = Q * (state.knn + 1) * sizeof(unsigned int);
+
+  float spaceAvail = state.totDRAMSize * 1024 * 1024 * 1024 -
+      returnDataSize - particleDataSize - state.gpuMemUsed * 1024 * 1024;
+  return spaceAvail / 1024 / 1024 / 1024;
+}
+
 float calcCRRatio(RTNNState& state) {
   unsigned int N = state.numPoints;
   unsigned int Q = state.numQueries;
@@ -615,6 +654,8 @@ float calcCRRatio(RTNNState& state) {
 
     ratio = state.radius / cellSize;
     fprintf(stdout, "\tCalculated cellRadiusRatio: %f\n", ratio);
+
+    state.memAvail = spaceAvail / 1024 / 1024 / 1024;
   } else {
     // the max reflects the fact that the return data and temp gas structures won't co-exist
     float spaceAvail = state.totDRAMSize * 1024 * 1024 * 1024 -
@@ -667,9 +708,11 @@ float calcCRRatio(RTNNState& state) {
     }
 
     ratio = state.radius / cellSize;
+    state.memAvail = (spaceAvail - curTotalSize) / 1024 / 1024 / 1024;
     fprintf(stdout, "\tCalculated cellRadiusRatio: %f (%f, %f)\n", ratio, curGASSize/1024/1024, curSortingSize/1024/1024);
     fprintf(stdout, "\tCalculated maxBatches: %.3f\n", numOfBatches);
     fprintf(stdout, "\tMemory utilization: %.3f%%\n", (1 - (spaceAvail-curTotalSize)/(state.totDRAMSize*1024*1024*1024))*100.0);
+    fprintf(stdout, "\tCalculated Memory available: %f GB\n", state.memAvail);
   }
 
   return ratio;
@@ -695,7 +738,7 @@ void initBatches(RTNNState& state) {
   state.d_gas_output_buffer = new CUdeviceptr[maxBatchCount]();
   state.stream = new cudaStream_t[maxBatchCount];
   state.d_r2q_map = new unsigned int*[maxBatchCount]();
-  state.numActQueries = new unsigned int[maxBatchCount];
+  state.numActQueries = new uint64_t[maxBatchCount];
   state.launchRadius = new float[maxBatchCount];
   state.h_res = new void*[maxBatchCount]();
   state.d_actQs = new float3*[maxBatchCount]();

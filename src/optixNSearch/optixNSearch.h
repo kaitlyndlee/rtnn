@@ -54,13 +54,14 @@ enum SearchType
 
 struct Params
 {
-    unsigned int*    frame_buffer;
-    float3*          points;
-    float3*          queries;
-    float            radius;
-    unsigned int*    d_r2q_map;
-    unsigned int     limit; // 1 for the initial run to sort indices; knn for future runs.
-    SearchType       mode;
+    unsigned int*       frame_buffer;
+    float3*             points;
+    float3*             queries;
+    double*             distances;
+    float               radius;
+    unsigned int*       d_r2q_map;
+    unsigned long       limit; // 1 for the initial run to sort indices; knn for future runs.
+    SearchType          mode;
 
     OptixTraversableHandle handle;
 };

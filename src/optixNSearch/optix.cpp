@@ -80,7 +80,7 @@ void filterRemoteQueries ( RTNNState& state ) {
   thrust::device_ptr<float3> tQueries;
   allocThrustDevicePtr(&tQueries, count, &state.d_pointers);
   copyIfInRange(state.params.queries, state.numQueries, thrust::device_pointer_cast(state.params.queries), tQueries, tMin, tMax);
-  fprintf(stdout, "Filter queries: %u (%.3f)\n", state.numQueries - count, (1 - (float)count/state.numQueries)*100);
+  fprintf(stdout, "Filter queries: %lu (%.3f)\n", state.numQueries - count, (1 - (float)count/state.numQueries)*100);
 
   if (count == 0) {
     fprintf(stdout, "no queries left after filtering\n");
@@ -134,7 +134,6 @@ void uploadData ( RTNNState& state ) {
     } else {
       thrust::device_ptr<float3> d_queries_ptr;
       state.params.queries = allocThrustDevicePtr(&d_queries_ptr, state.numQueries, &state.d_pointers);
-      
       thrust::copy(state.h_queries, state.h_queries + state.numQueries, d_queries_ptr);
       computeMinMax(state.numQueries, state.params.queries, state.qMin, state.qMax);
     }
@@ -592,37 +591,49 @@ void createContext( RTNNState& state )
     state.context = context;
 }
 
-void launchSubframe( unsigned int* output_buffer, RTNNState& state, int batch_id )
+void launchSubframe( unsigned int* output_buffer, RTNNState& state, int batch_id) {
+  launchSubframe(output_buffer, state, batch_id, state.numActQueries[batch_id], state.d_actQs[batch_id]);
+}
+
+void launchSubframe( unsigned int* output_buffer, RTNNState& state, int batch_id, unsigned int numQueries, float3 *d_actQs)
 {
-    unsigned int numQueries = state.numActQueries[batch_id];
     state.params.handle = state.gas_handle[batch_id];
-    state.params.queries = state.d_actQs[batch_id];
+    state.params.queries = d_actQs;
     state.params.frame_buffer = output_buffer;
 
     fprintf(stdout, "\tLaunch %u (%.4f%%) queries\n", numQueries, (float)numQueries/(float)state.numQueries*100.0);
     fprintf(stdout, "\tSearch radius: %f\n", state.params.radius);
-    fprintf(stdout, "\tSearch K: %u\n", state.params.limit);
+    fprintf(stdout, "\tSearch K: %lu\n", state.params.limit);
     fprintf(stdout, "\tSearch mode: %d\n", state.params.mode);
 
-    thrust::device_ptr<Params> d_params_ptr;
-    state.d_params = allocThrustDevicePtr(&d_params_ptr, 1, &state.d_pointers);
-    CUDA_CHECK( cudaMemcpyAsync( reinterpret_cast<void*>( state.d_params ),
-                                 &state.params,
-                                 sizeof( Params ),
-                                 cudaMemcpyHostToDevice,
-                                 state.stream[batch_id]
-    ) );
+    Timing::startTiming("\t\tallocate params memory");
+      thrust::device_ptr<Params> d_params_ptr;
+      state.d_params = allocThrustDevicePtr(&d_params_ptr, 1, &state.d_pointers);
+      CUDA_CHECK( cudaMemcpyAsync( reinterpret_cast<void*>( state.d_params ),
+                                  &state.params,
+                                  sizeof( Params ),
+                                  cudaMemcpyHostToDevice,
+                                  state.stream[batch_id]
+      ) );
+    Timing::stopTiming(true);
 
-    OPTIX_CHECK( optixLaunch(
-        state.pipeline[batch_id],
-        state.stream[batch_id],
-        reinterpret_cast<CUdeviceptr>( state.d_params ),
-        sizeof( Params ),
-        &state.sbt,
-        numQueries, // launch width
-        1,          // launch height
-        1           // launch depth
-    ) );
+    Timing::startTiming("\t\toptix launch");
+      OPTIX_CHECK( optixLaunch(
+          state.pipeline[batch_id],
+          state.stream[batch_id],
+          reinterpret_cast<CUdeviceptr>( state.d_params ),
+          sizeof( Params ),
+          &state.sbt,
+          numQueries, // launch width
+          1,          // launch height
+          1           // launch depth
+      ) );
+     Timing::stopTiming(true); 
+
+    Timing::startTiming("\t\tfree params memory");
+      cudaFree(state.d_params);
+      state.d_pointers.erase(state.d_pointers.find(state.d_params));
+    Timing::stopTiming(true); 
 }
 
 void cleanupState( RTNNState& state )
@@ -642,8 +653,8 @@ void cleanupState( RTNNState& state )
 
       CUDA_CHECK( cudaStreamDestroy(state.stream[i]) );
 
-      CUDA_CHECK( cudaFreeHost(state.h_res[i] ) );
-      delete state.h_actQs[i];
+      // CUDA_CHECK( cudaFreeHost(state.h_res[i] ) );
+      // delete state.h_actQs[i];
 
       //CUDA_CHECK( cudaFree( state.d_temp_buffer_gas[i] ) );
       // if compaction isn't successful, d_gas and d_buffer_temp point will point to the same device memory.
@@ -652,18 +663,18 @@ void cleanupState( RTNNState& state )
       CUDA_CHECK( cudaFree( reinterpret_cast<void*>( state.d_gas_output_buffer[i] ) ) );
     }
 
-    delete state.gas_handle;
-    delete state.d_gas_output_buffer;
-    delete state.stream;
-    delete state.numActQueries;
-    delete state.launchRadius;
-    delete state.h_res;
-    delete state.d_actQs;
-    delete state.h_actQs;
-    delete state.d_aabb;
-    delete state.d_temp_buffer_gas;
-    delete state.d_buffer_temp_output_gas_and_compacted_size;
-    delete state.d_r2q_map;
+    // delete state.gas_handle;
+    // delete state.d_gas_output_buffer;
+    // delete state.stream;
+    // delete state.numActQueries;
+    // delete state.launchRadius;
+    // delete state.h_res;
+    // delete state.d_actQs;
+    // delete state.h_actQs;
+    // delete state.d_aabb;
+    // delete state.d_temp_buffer_gas;
+    // delete state.d_buffer_temp_output_gas_and_compacted_size;
+    // delete state.d_r2q_map;
     //delete state.h_points;
 
     CUDA_CHECK( cudaFree( reinterpret_cast<void*>( state.sbt.raygenRecord       ) ) );

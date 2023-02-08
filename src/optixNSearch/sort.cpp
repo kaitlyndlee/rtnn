@@ -4,6 +4,7 @@
 #include <sutil/Timing.h>
 
 #include <thrust/device_vector.h>
+#include <thrust/host_vector.h>
 #include <thrust/sort.h>
 #include <thrust/copy.h>
 #include <thrust/sequence.h>
@@ -841,5 +842,29 @@ void gatherQueries( RTNNState& state, thrust::device_ptr<unsigned int> d_indices
     state.h_actQs[batch_id] = new float3[numQueries]; // don't overwrite h_points
     thrust::copy(d_reord_queries_ptr, d_reord_queries_ptr+numQueries, state.h_actQs[batch_id]);
   }
+}
+
+void allocBatches(RTNNState state) {
+  printf("After thrust alloc\n");
+  int queriesPerBatch = state.numActQueries[0];
+  printf("queriesPerBatch: %d\n", queriesPerBatch);
+  for (int i = 0; i < state.numOfBatches; i++) {
+    state.d_actQs[i] = new float3[state.numActQueries[i]];
+    for (uint64_t j = 0; j < state.numActQueries[i]; j++) {
+    printf("Before copy\n");
+    state.d_actQs[i][j] = state.h_queries[i * queriesPerBatch + j];
+    printf("Batch: %d, point: [%f, %f, %f]\n", i,state.d_actQs[i][j].x, state.d_actQs[i][j].y, state.d_actQs[i][j].z);
+    printf("After copy\n");
+    }
+
+    printf("After setting state.d_actQs\n");
+    state.h_actQs[i] = new float3[state.numActQueries[i]];
+    for (uint64_t j = 0; j < state.numActQueries[i]; j++) {
+      state.h_actQs[i][j] = state.d_actQs[i][j];
+    }
+    printf("Before setting launch radius\n");
+    state.launchRadius[i] = state.radius;
+    printf("After setting launch radius\n");
+  }  
 }
 

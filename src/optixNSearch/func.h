@@ -30,8 +30,8 @@ void genSeqDevice(thrust::device_ptr<unsigned int>, unsigned int);
 void genSeqDevice(thrust::device_ptr<unsigned int>, unsigned int, cudaStream_t);
 void exclusiveScan(thrust::device_ptr<unsigned int>, unsigned int, thrust::device_ptr<unsigned int>, cudaStream_t);
 void exclusiveScan(thrust::device_ptr<unsigned int>, unsigned int, thrust::device_ptr<unsigned int>);
-void fillByValue(thrust::device_ptr<unsigned int>, unsigned int, int, cudaStream_t);
-void fillByValue(thrust::device_ptr<unsigned int>, unsigned int, int);
+void fillByValue(thrust::device_ptr<unsigned int>, uint64_t, int, cudaStream_t);
+void fillByValue(thrust::device_ptr<unsigned int>, uint64_t, int);
 void copyIfIdMatch(float3*, unsigned int, thrust::device_ptr<int>, thrust::device_ptr<float3>, int);
 void copyIfInRange(float3*, unsigned int, thrust::device_ptr<float3>, thrust::device_ptr<float3>, float3, float3);
 void copyIfNotInRange(float3*, unsigned int, float3*, float3*, float3, float3);
@@ -50,7 +50,7 @@ bool operator>=(float3, float3);
 // https://stackoverflow.com/questions/353180/how-do-i-find-the-name-of-the-calling-function/378165
 // https://gcc.gnu.org/onlinedocs/gcc/Other-Builtins.html
 // const char* str = __builtin_FUNCTION()
-template <typename T> T* allocThrustDevicePtr(thrust::device_ptr<T>* d_memory, unsigned int N, std::unordered_set<void*>* pSet=nullptr) {
+template <typename T> T* allocThrustDevicePtr(thrust::device_ptr<T>* d_memory, uint64_t N, std::unordered_set<void*>* pSet=nullptr) {
   T* d_memory_raw;
   CUDA_CHECK( cudaMalloc(reinterpret_cast<void**>(&d_memory_raw),
              N * sizeof(T) ) );
@@ -103,6 +103,7 @@ void kGenAABB(float3*, float, unsigned int, OptixAabb*, cudaStream_t);
 void uploadData(RTNNState&);
 void createGeometry(RTNNState&, int, float);
 void launchSubframe(unsigned int*, RTNNState&, int);
+void launchSubframe( unsigned int* output_buffer, RTNNState& state, int batch_id, unsigned int numQueries, float3 *d_actQs);
 void initLaunchParams(RTNNState&);
 void setupOptiX(RTNNState&);
 void cleanupState(RTNNState&);
@@ -120,3 +121,7 @@ void freeGridPointers(RTNNState&);
 void search(RTNNState&, int);
 void gasSortSearch(RTNNState&, int);
 thrust::device_ptr<unsigned int> initialTraversal(RTNNState&);
+
+double bruteForceSearch(float3 *points, float3 *queries, const double epsilon, const int numPoints, const int numQueries, const int limit);
+void allocBatches(RTNNState state);
+float calcMemUsage(RTNNState& state);

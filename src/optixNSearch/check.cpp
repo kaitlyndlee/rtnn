@@ -20,7 +20,7 @@ typedef std::priority_queue<knn_res_t, std::vector<knn_res_t>, Compare> knn_queu
 void sanityCheckKNN( RTNNState& state, int batch_id ) {
   bool printRes = false;
   srand(time(NULL));
-  std::vector<unsigned int> randQ {rand() % state.numQueries, rand() % state.numQueries, rand() % state.numQueries, rand() % state.numQueries, rand() % state.numQueries};
+  std::vector<uint64_t> randQ {rand() % state.numQueries, rand() % state.numQueries, rand() % state.numQueries, rand() % state.numQueries, rand() % state.numQueries};
   //std::vector<unsigned int> randQ {46401};
   //std::vector<unsigned int> randQ {1606};
 
@@ -104,18 +104,22 @@ void sanityCheckRadius( RTNNState& state, int batch_id ) {
   // this is stateful in that it relies on state.params.limit
   // TODO: now use knn rather than limit. good?
 
+  double totalSum = 0;
   unsigned int totalNeighbors = 0;
   unsigned int totalWrongNeighbors = 0;
   double totalWrongDist = 0;
   for (unsigned int q = 0; q < state.numQueries; q++) {
+    // std::cout << "Query: " << q << std::endl;
     for (unsigned int n = 0; n < state.knn; n++) {
       unsigned int p = reinterpret_cast<unsigned int*>( state.h_res[batch_id] )[ q * state.knn + n ];
       //std::cout << p << std::endl; break;
       if (p == UINT_MAX) break;
       else {
+        // std::cout << "\tPoint: " << p << std::endl;
         totalNeighbors++;
         float3 diff = state.h_points[p] - state.h_queries[q];
         float dists = dot(diff, diff);
+        totalSum += sqrt(dists);
         if (dists > state.gRadius * state.gRadius) {
           fprintf(stdout, "Point %u [%f, %f, %f] is not a neighbor of query %u [%f, %f, %f]. Dist is %lf.\n",
             p, state.h_points[p].x, state.h_points[p].y, state.h_points[p].z,
@@ -131,7 +135,7 @@ void sanityCheckRadius( RTNNState& state, int batch_id ) {
     }
     //std::cout << "\n";
   }
-
+  printf("Total sum: %f\n", totalSum);
   std::cerr << "Sanity check done." << std::endl;
   std::cerr << "Avg neighbor/query: " << (float)totalNeighbors/state.numQueries << std::endl;
   std::cerr << "Total wrong neighbors: " << totalWrongNeighbors << std::endl;

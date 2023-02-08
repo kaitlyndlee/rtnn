@@ -84,9 +84,10 @@ project(OptiX-Samples)
 # This enforces a particular version of CMake that we require to process the script files
 # properly.  We rely on CXX_STANDARD, which was added in CMake 3.1.
 cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
-set(CMAKE_CXX_STANDARD 11)
+set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)
+
 
 # As of CMake 2.6 policies were introduced in order to provide a mechanism for
 # adding backwards compatibility one feature at a time.  We will just specify
@@ -154,6 +155,7 @@ find_package(CUDA 5.0 REQUIRED)
 # Present the CUDA_64_BIT_DEVICE_CODE on the default set of options.
 mark_as_advanced(CLEAR CUDA_64_BIT_DEVICE_CODE)
 
+find_package(OpenMP REQUIRED)
 
 # Add some useful default arguments to the NVCC and NVRTC flags.  This is an example of
 # how we use PASSED_FIRST_CONFIGURE.  Once you have configured, this variable is TRUE
@@ -351,6 +353,12 @@ function(OPTIX_add_sample_executable target_name_base target_name_var)
   target_link_libraries( ${target_name}
     sutil_7_sdk
     )
+
+  target_compile_options(${target_name} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
+                      #  --generate-line-info
+                       --relocatable-device-code=true
+                       >)
+  target_link_libraries(${target_name} PRIVATE OpenMP::OpenMP_CXX)
 
   set_target_properties( ${target_name} PROPERTIES
     COMPILE_DEFINITIONS

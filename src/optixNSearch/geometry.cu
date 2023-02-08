@@ -37,7 +37,7 @@ __constant__ Params params;
 
 extern "C" __device__ bool check_intersect(SearchType mode)
 {
-  unsigned int primIdx = optixGetPrimitiveIndex();
+  unsigned long long primIdx = optixGetPrimitiveIndex();
   const float3 center = params.points[primIdx];
   const float3 ray_orig = optixGetWorldRayOrigin();
 
@@ -60,10 +60,15 @@ extern "C" __device__ bool check_intersect(SearchType mode)
   } else {
     float3 O = ray_orig - center;
     float sqdist = dot(O, O);
+    unsigned long long queryIdx = optixGetPayload_0();
+      // printf("Point: %d, [%f, %f, %f] query: %u, [%f, %f, %f], dist: %f\n", primIdx, center.x, center.y, center.z, queryIdx, ray_orig.x, ray_orig.y, ray_orig.z, sqdist);
 
     // first check excludes the query itself; same as (ray_orig != center)
-    if (sqdist < params.radius * params.radius)
+    if (sqdist < params.radius * params.radius) {
       intersect = true;
+      // TODO: K: does this cause a race condition?
+      params.distances[queryIdx] += sqrtf(sqdist);
+    }
   }
 
   return intersect;
@@ -71,11 +76,11 @@ extern "C" __device__ bool check_intersect(SearchType mode)
 
 extern "C" __device__ void write_res_radius()
 {
-  unsigned int id = optixGetPayload_1();
+  unsigned long long id = optixGetPayload_1();
   if (id < params.limit) {
-    unsigned int queryIdx = optixGetPayload_0();
-    unsigned int primIdx = optixGetPrimitiveIndex();
-    params.frame_buffer[queryIdx * params.limit + id] = primIdx;
+    unsigned long long queryIdx = optixGetPayload_0();
+    unsigned long long primIdx = optixGetPrimitiveIndex();
+    params.frame_buffer[queryIdx * (unsigned long long) params.limit + id] = primIdx;
     if (id + 1 == params.limit)
       optixReportIntersection( 0, 0 );
     else optixSetPayload_1( id+1 );

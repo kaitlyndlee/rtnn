@@ -5,6 +5,26 @@
 #include "state.h"
 #include "func.h"
 #include "grid.h"
+#include <omp.h>
+
+// void bruteForceSearch(RTNNState state, int batch) {
+//   double *totalSum = (double *) malloc(state.numActQueries[batch] * sizeof(double));
+//   #pragma omp parallel for
+//   for (unsigned int q = 0; q < state.numActQueries[batch]; q++) {
+//     totalSum[q] = 0;
+//     double distance = 0;
+//     float3 query = state.h_queries[q];
+//     for (unsigned int p = 0; p < state.numPoints; p++) {
+//       float3 point = state.h_points[p];
+//       distance += sqr(point.x - query.x);
+//       distance += sqr(point.y - query.y);
+//       distance += sqr(point.z - query.z);
+//       if (distance < state.radius * state.radius) {
+//         totalSum[q] += distance;
+//       }
+//     }
+//   }
+// }
 
 void setDevice ( RTNNState& state ) {
   int32_t device_count = 0;
@@ -42,6 +62,98 @@ void setupSearch( RTNNState& state ) {
   state.d_actQs[0] = state.params.queries;
   state.h_actQs[0] = state.h_queries;
   state.launchRadius[0] = state.radius;
+}
+
+void originalRTNN(RTNNState& state) {
+  if (state.interleave) {
+    for (int i = 0; i < state.numOfBatches; i++) {
+      // it's possible that certain batches have 0 query (e.g., state.partThd too low).
+      if (state.numActQueries[i] == 0) continue;
+    // TODO: group buildGas together to allow overlapping; this would allow
+    // us to batch-free temp storages and non-compacted gas storages. right
+    // now free storage serializes gas building.
+      createGeometry (state, i, state.launchRadius[i]/state.gsrRatio); // batch_id ignored if not partition.
+    }
+
+    for (int i = 0; i < state.numOfBatches; i++) {
+      if (state.numActQueries[i] == 0) continue;
+      if (state.qGasSortMode) gasSortSearch(state, i);
+    }
+
+    for (int i = 0; i < state.numOfBatches; i++) {
+      if (state.numActQueries[i] == 0) continue;
+      if (state.qGasSortMode && state.gsrRatio != 1)
+        createGeometry (state, i, state.launchRadius[i]);
+    }
+
+    for (int i = 0; i < state.numOfBatches; i++) {
+      if (state.numActQueries[i] == 0) continue;
+      // TODO: when K is too big, we can't launch all rays together. split rays.
+      search(state, i);
+    }
+  } else {
+    for (int i = 0; i < state.numOfBatches; i++) {
+      if (state.numActQueries[i] == 0) continue;
+
+      // create the GAS using the current order of points and the launchRadius of the current batch.
+      // TODO: does it make sense to have per-batch |gsrRatio|?
+      createGeometry (state, i, state.launchRadius[i]/state.gsrRatio); // batch_id ignored if not partition.
+
+      if (state.qGasSortMode) {
+        gasSortSearch(state, i);
+        if (state.gsrRatio != 1)
+          createGeometry (state, i, state.launchRadius[i]);
+      }
+
+      search(state, i);
+    }
+  }
+}
+
+void newRTNN(RTNNState& state) {
+  if (state.interleave) {
+    for (int i = 0; i < state.numOfBatches; i++) {
+      // it's possible that certain batches have 0 query (e.g., state.partThd too low).
+      if (state.numActQueries[i] == 0) continue;
+    // TODO: group buildGas together to allow overlapping; this would allow
+    // us to batch-free temp storages and non-compacted gas storages. right
+    // now free storage serializes gas building.
+      createGeometry(state, i, state.launchRadius[i]/state.gsrRatio); // batch_id ignored if not partition.
+    }
+
+    for (int i = 0; i < state.numOfBatches; i++) {
+      if (state.numActQueries[i] == 0) continue;
+      if (state.qGasSortMode) gasSortSearch(state, i);
+    }
+
+    for (int i = 0; i < state.numOfBatches; i++) {
+      if (state.numActQueries[i] == 0) continue;
+      if (state.qGasSortMode && state.gsrRatio != 1)
+        createGeometry(state, i, state.launchRadius[i]);
+    }
+
+    for (int i = 0; i < state.numOfBatches; i++) {
+      if (state.numActQueries[i] == 0) continue;
+      // TODO: when K is too big, we can't launch all rays together. split rays.
+      search(state, i);
+    }
+  } else {
+    for (int i = 0; i < state.numOfBatches; i++) {
+      if (state.numActQueries[i] == 0) continue;
+
+      // create the GAS using the current order of points and the launchRadius of the current batch.
+      // TODO: does it make sense to have per-batch |gsrRatio|?
+      createGeometry (state, i, state.launchRadius[i]/state.gsrRatio); // batch_id ignored if not partition.
+
+      if (state.qGasSortMode) {
+        gasSortSearch(state, i);
+        if (state.gsrRatio != 1)
+          createGeometry (state, i, state.launchRadius[i]);
+      }
+
+      search(state, i);
+    }
+  }
 }
 
 int main( int argc, char* argv[] )
@@ -83,12 +195,25 @@ int main( int argc, char* argv[] )
     Timing::reset();
     uploadData(state);
 
+    // printf("----------\nInput Data\n");
+    // for (int p = 0; p < state.numPoints; p++) {
+    //   std::cout << state.h_points[p].x << ", " << state.h_points[p].y << ", " << state.h_points[p].z << std::endl;
+    // }
+    // printf("----------\n");
+    // for (int q = 0; q < state.numQueries; q++) {
+    //   std::cout << state.h_queries[q].x << ", " << state.h_queries[q].y << ", " << state.h_queries[q].z << std::endl;
+    // }
+    // printf("----------\n");
+
+    // printf("Number of batches: %d\n", state.numOfBatches);
+    // calcMemoryUsage(state);
+
     // call this after set device.
     initBatches(state);
 
     setupOptiX(state);
 
-    Timing::startTiming("total search time");
+    Timing::startTiming("total search");
 
     // TODO: streamline the logic of partition and sorting.
     sortParticles(state, QUERY, state.querySortMode);
@@ -100,55 +225,18 @@ int main( int argc, char* argv[] )
     // early free done here too
     setupSearch(state);
 
-    if (state.interleave) {
-      for (int i = 0; i < state.numOfBatches; i++) {
-        // it's possible that certain batches have 0 query (e.g., state.partThd too low).
-        if (state.numActQueries[i] == 0) continue;
-	    // TODO: group buildGas together to allow overlapping; this would allow
-	    // us to batch-free temp storages and non-compacted gas storages. right
-	    // now free storage serializes gas building.
-        createGeometry (state, i, state.launchRadius[i]/state.gsrRatio); // batch_id ignored if not partition.
-      }
-
-      for (int i = 0; i < state.numOfBatches; i++) {
-        if (state.numActQueries[i] == 0) continue;
-        if (state.qGasSortMode) gasSortSearch(state, i);
-      }
-
-      for (int i = 0; i < state.numOfBatches; i++) {
-        if (state.numActQueries[i] == 0) continue;
-        if (state.qGasSortMode && state.gsrRatio != 1)
-          createGeometry (state, i, state.launchRadius[i]);
-      }
-
-      for (int i = 0; i < state.numOfBatches; i++) {
-        if (state.numActQueries[i] == 0) continue;
-        // TODO: when K is too big, we can't launch all rays together. split rays.
-        search(state, i);
-      }
-    } else {
-      for (int i = 0; i < state.numOfBatches; i++) {
-        if (state.numActQueries[i] == 0) continue;
-
-        // create the GAS using the current order of points and the launchRadius of the current batch.
-        // TODO: does it make sense to have per-batch |gsrRatio|?
-        createGeometry (state, i, state.launchRadius[i]/state.gsrRatio); // batch_id ignored if not partition.
-
-        if (state.qGasSortMode) {
-          gasSortSearch(state, i);
-          if (state.gsrRatio != 1)
-            createGeometry (state, i, state.launchRadius[i]);
-        }
-
-        search(state, i);
-      }
-    }
-
+    // newRTNN(state);
+    originalRTNN(state);
+    
     CUDA_SYNC_CHECK();
     Timing::stopTiming(true);
 
-    if(state.sanCheck) sanityCheck(state);
+    // printf("Before bruteforce check\n");
+    Timing::startTiming("brute force search time");
+    bruteForceSearch(state.h_points, state.h_queries, state.radius, state.numPoints, state.numQueries, state.params.limit);
+    Timing::stopTiming(true);
 
+    if(state.sanCheck) sanityCheck(state);
     cleanupState(state);
   }
   catch( std::exception& e )

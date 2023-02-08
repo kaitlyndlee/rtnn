@@ -95,10 +95,12 @@ struct RTNNState
     bool                        deferFree                 = true;
     bool                        filterQueries             = false;
 
-    unsigned int                numPoints                 = 0;
-    unsigned int                numQueries                = 0;
+    uint64_t                    numPoints                 = 0;
+    uint64_t                    numQueries                = 0;
+    uint64_t                    enteredNumPoints          = 0;
+    uint64_t                    enteredNumQueries         = 0;
     unsigned int**              d_r2q_map                 = nullptr;
-    unsigned int*               numActQueries             = nullptr;
+    uint64_t*                   numActQueries             = nullptr;
     float*                      launchRadius              = nullptr;
     void**                      h_res                     = nullptr;
     float3**                    d_actQs                   = nullptr;
@@ -117,6 +119,7 @@ struct RTNNState
     int                         numOfBatches              = -1;
     int                         maxBatchCount             = 1;
     float                       totDRAMSize               = 0; // GB
+    float                       memAvail                  = 0; // GB
     float                       gpuMemUsed                = 0; // MB
     float                       estGasSize                = -1; // MB
 

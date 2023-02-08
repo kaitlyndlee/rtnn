@@ -107,7 +107,7 @@ extern "C" __global__ void __raygen__knn()
 extern "C" __global__ void __raygen__radius()
 {
     const uint3 idx = optixGetLaunchIndex();
-    unsigned int rayIdx = idx.x;
+    unsigned long long rayIdx = idx.x;
 
     // if d_r2q_map is null, it could be 1) an unsorted run, 2) an initial run
     // for sorting, or 3) a sorted run with queries pre-gathered. Either case,

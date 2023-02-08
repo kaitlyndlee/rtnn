@@ -90,11 +90,11 @@ void exclusiveScan(thrust::device_ptr<unsigned int> d_src_ptr, unsigned int N, t
     d_dest_ptr);
 }
 
-void fillByValue(thrust::device_ptr<unsigned int> d_src_ptr, unsigned int N, int value, cudaStream_t stream) {
+void fillByValue(thrust::device_ptr<unsigned int> d_src_ptr, uint64_t N, int value, cudaStream_t stream) {
   thrust::fill(thrust::cuda::par.on(stream), d_src_ptr, d_src_ptr + N, value);
 }
 
-void fillByValue(thrust::device_ptr<unsigned int> d_src_ptr, unsigned int N, int value) {
+void fillByValue(thrust::device_ptr<unsigned int> d_src_ptr, uint64_t N, int value) {
   thrust::fill(d_src_ptr, d_src_ptr + N, value);
 }
 
