@@ -114,13 +114,31 @@ void filterRemoteQueries ( RTNNState& state ) {
   state.Max = fmaxf(state.qMax, state.pMax);
 }
 
+void allocateData(RTNNState &state, thrust::device_ptr<float3> *d_points_ptr, thrust::device_ptr<float3> *d_queries_ptr) {
+  // Allocate device memory for points/queries
+  state.params.points =
+      allocThrustDevicePtr(d_points_ptr, state.numPoints, &state.d_pointers);
+
+  if (!state.samepq) {
+    state.params.queries = allocThrustDevicePtr(
+          d_queries_ptr, state.numQueries, &state.d_pointers);
+  }
+}
+
 void uploadData ( RTNNState& state ) {
-  Timing::startTiming("upload points and/or queries");
     // Allocate device memory for points/queries
     thrust::device_ptr<float3> d_points_ptr;
     state.params.points = allocThrustDevicePtr(&d_points_ptr, state.numPoints, &state.d_pointers);
+    thrust::device_ptr<float3> d_queries_ptr;
+    if (!state.samepq) {
+      state.params.queries = allocThrustDevicePtr(&d_queries_ptr, state.numQueries, &state.d_pointers);
+    }
+    uploadData(state, &d_points_ptr, &d_queries_ptr);
+}
 
-    thrust::copy(state.h_points, state.h_points + state.numPoints, d_points_ptr);
+void uploadData ( RTNNState& state, thrust::device_ptr<float3> *d_points_ptr, thrust::device_ptr<float3> *d_queries_ptr ) {
+  // Timing::startTiming("upload points and/or queries");
+    thrust::copy(state.h_points, state.h_points + state.numPoints, *d_points_ptr);
     computeMinMax(state.numPoints, state.params.points, state.pMin, state.pMax);
 
     if (state.samepq) {
@@ -132,13 +150,17 @@ void uploadData ( RTNNState& state ) {
       state.qMin = state.pMin;
       state.qMax = state.pMax;
     } else {
-      thrust::device_ptr<float3> d_queries_ptr;
-      state.params.queries = allocThrustDevicePtr(&d_queries_ptr, state.numQueries, &state.d_pointers);
-      thrust::copy(state.h_queries, state.h_queries + state.numQueries, d_queries_ptr);
+      thrust::copy(state.h_queries, state.h_queries + state.numQueries, *d_queries_ptr);
+
+      // Print queries for testing purposes
+      // float3 h_q0;
+      // thrust::copy(*d_queries_ptr, *d_queries_ptr+1, &h_q0);
+      // std::cout << h_q0.x << " " << h_q0.y << " " << h_q0.z << std::endl;
+
       computeMinMax(state.numQueries, state.params.queries, state.qMin, state.qMax);
     }
 
-    Timing::startTiming("filter queries");
+    Timing::startTiming("\t\tfilter queries");
       // filter out queries that are theorerically impossible to reach any search
       // points given the search radius, then create a unified grid. why? query
       // partition in theory will need a unified grid anyways, and if without
@@ -163,7 +185,7 @@ void uploadData ( RTNNState& state ) {
       fprintf(stdout, "\tActual radius: %f\n", state.radius);
     Timing::stopTiming(true);
 
-  Timing::stopTiming(true);
+  // Timing::stopTiming(true);
 }
 
 static void buildGas(
@@ -246,7 +268,7 @@ static void buildGas(
 
 CUdeviceptr createAABB( RTNNState& state, int batch_id, float radius )
 {
-  // Load AABB into device memory
+  // Load AABB into device memo ry
   unsigned int numPrims = state.numPoints;
 
   //float radius = state.launchRadius[batch_id] / state.gsrRatio;
@@ -277,7 +299,7 @@ CUdeviceptr createAABB( RTNNState& state, int batch_id, float radius )
 
 void createGeometry( RTNNState& state, int batch_id, float radius )
 {
-  Timing::startTiming("create and upload geometry");
+  Timing::startTiming("\t\t\tcreate and upload geometry");
     CUdeviceptr d_aabb = createAABB(state, batch_id, radius);
 
     unsigned int numPrims = state.numPoints;
@@ -310,7 +332,7 @@ void createGeometry( RTNNState& state, int batch_id, float radius )
         batch_id);
 
     state.d_aabb[batch_id] = reinterpret_cast<void*>(d_aabb);
-    CUDA_CHECK( cudaFree( reinterpret_cast<void*>(d_aabb) ) );
+    // CUDA_CHECK( cudaFree( reinterpret_cast<void*>(d_aabb) ) );
     OMIT_ON_E2EMSR( CUDA_CHECK( cudaStreamSynchronize( state.stream[batch_id] ) ) );
   Timing::stopTiming(true);
 }
@@ -598,7 +620,7 @@ void launchSubframe( unsigned int* output_buffer, RTNNState& state, int batch_id
 void launchSubframe( unsigned int* output_buffer, RTNNState& state, int batch_id, unsigned int numQueries, float3 *d_actQs)
 {
     state.params.handle = state.gas_handle[batch_id];
-    state.params.queries = d_actQs;
+    thrust::copy(d_actQs, d_actQs + numQueries, thrust::device_pointer_cast(state.params.queries));
     state.params.frame_buffer = output_buffer;
 
     fprintf(stdout, "\tLaunch %u (%.4f%%) queries\n", numQueries, (float)numQueries/(float)state.numQueries*100.0);
@@ -606,7 +628,7 @@ void launchSubframe( unsigned int* output_buffer, RTNNState& state, int batch_id
     fprintf(stdout, "\tSearch K: %lu\n", state.params.limit);
     fprintf(stdout, "\tSearch mode: %d\n", state.params.mode);
 
-    Timing::startTiming("\t\tallocate params memory");
+    Timing::startTiming("\t\t\tallocate params memory");
       thrust::device_ptr<Params> d_params_ptr;
       state.d_params = allocThrustDevicePtr(&d_params_ptr, 1, &state.d_pointers);
       CUDA_CHECK( cudaMemcpyAsync( reinterpret_cast<void*>( state.d_params ),
@@ -617,7 +639,7 @@ void launchSubframe( unsigned int* output_buffer, RTNNState& state, int batch_id
       ) );
     Timing::stopTiming(true);
 
-    Timing::startTiming("\t\toptix launch");
+    Timing::startTiming("\t\t\toptix launch");
       OPTIX_CHECK( optixLaunch(
           state.pipeline[batch_id],
           state.stream[batch_id],
@@ -630,7 +652,7 @@ void launchSubframe( unsigned int* output_buffer, RTNNState& state, int batch_id
       ) );
      Timing::stopTiming(true); 
 
-    Timing::startTiming("\t\tfree params memory");
+    Timing::startTiming("\t\t\tfree params memory");
       cudaFree(state.d_params);
       state.d_pointers.erase(state.d_pointers.find(state.d_params));
     Timing::stopTiming(true); 
@@ -653,29 +675,29 @@ void cleanupState( RTNNState& state )
 
       CUDA_CHECK( cudaStreamDestroy(state.stream[i]) );
 
-      // CUDA_CHECK( cudaFreeHost(state.h_res[i] ) );
-      // delete state.h_actQs[i];
+      CUDA_CHECK( cudaFreeHost(state.h_res[i] ) );
+      delete state.h_actQs[i];
 
-      //CUDA_CHECK( cudaFree( state.d_temp_buffer_gas[i] ) );
+      // CUDA_CHECK( cudaFree( state.d_temp_buffer_gas[i] ) );
       // if compaction isn't successful, d_gas and d_buffer_temp point will point to the same device memory.
-      //if (reinterpret_cast<void*>(state.d_gas_output_buffer[i]) != state.d_buffer_temp_output_gas_and_compacted_size[i] )
-      //  CUDA_CHECK( cudaFree( state.d_buffer_temp_output_gas_and_compacted_size[i] ) );
+      // if (reinterpret_cast<void*>(state.d_gas_output_buffer[i]) != state.d_buffer_temp_output_gas_and_compacted_size[i] )
+      //   CUDA_CHECK( cudaFree( state.d_buffer_temp_output_gas_and_compacted_size[i] ) );
       CUDA_CHECK( cudaFree( reinterpret_cast<void*>( state.d_gas_output_buffer[i] ) ) );
     }
 
-    // delete state.gas_handle;
-    // delete state.d_gas_output_buffer;
-    // delete state.stream;
-    // delete state.numActQueries;
-    // delete state.launchRadius;
-    // delete state.h_res;
-    // delete state.d_actQs;
-    // delete state.h_actQs;
-    // delete state.d_aabb;
-    // delete state.d_temp_buffer_gas;
-    // delete state.d_buffer_temp_output_gas_and_compacted_size;
-    // delete state.d_r2q_map;
-    //delete state.h_points;
+    delete state.gas_handle;
+    delete state.d_gas_output_buffer;
+    delete state.stream;
+    delete state.numActQueries;
+    delete state.launchRadius;
+    delete state.h_res;
+    delete state.d_actQs;
+    delete state.h_actQs;
+    delete state.d_aabb;
+    delete state.d_temp_buffer_gas;
+    delete state.d_buffer_temp_output_gas_and_compacted_size;
+    delete state.d_r2q_map;
+    delete state.h_points;
 
     CUDA_CHECK( cudaFree( reinterpret_cast<void*>( state.sbt.raygenRecord       ) ) );
     CUDA_CHECK( cudaFree( reinterpret_cast<void*>( state.sbt.missRecordBase     ) ) );
@@ -688,15 +710,15 @@ void cleanupState( RTNNState& state )
 }
 
 void setupOptiX( RTNNState& state ) {
-  Timing::startTiming("create context");
+  Timing::startTiming("\tcreate context");
     createContext  ( state );
   Timing::stopTiming(true);
  
-  Timing::startTiming("create pipeline");
+  Timing::startTiming("\tcreate pipeline");
     createPipeline ( state );
   Timing::stopTiming(true);
 
-  Timing::startTiming("create SBT");
+  Timing::startTiming("\tcreate SBT");
     createSBT      ( state );
   Timing::stopTiming(true);
 }

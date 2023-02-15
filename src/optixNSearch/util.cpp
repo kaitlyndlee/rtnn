@@ -52,7 +52,7 @@ int tokenize(std::string s, std::string del, float3** ndpoints, unsigned int lin
   return dim;
 }
 
-float3** read_pc_data(const char* data_file, uint64_t* N, int* d) {
+float3** read_pc_data(const char* data_file, uint64_t* N, int* d, uint64_t enteredNumPoints) {
   std::ifstream file;
 
   file.open(data_file);
@@ -64,13 +64,21 @@ float3** read_pc_data(const char* data_file, uint64_t* N, int* d) {
   char line[1024];
   uint64_t lines = 0;
   int dim = 0;
+  std::string del = " ";
 
   while (file.getline(line, 1024)) {
     if (lines == 0) {
       std::string str(line);
-      dim = tokenize(str, ",", nullptr, 0);
+      int pos = str.find(del) + del.size();
+      str.erase(0, pos);
+      int end = str.find_last_not_of(del);
+      str = str.substr(0, end + 1);
+      dim = tokenize(str, del, nullptr, 0);
     }
     lines++;
+    if (lines == enteredNumPoints) {
+      break;
+    }
   }
   file.clear();
   file.seekg(0, std::ios::beg);
@@ -86,11 +94,18 @@ float3** read_pc_data(const char* data_file, uint64_t* N, int* d) {
   lines = 0;
   while (file.getline(line, 1024)) {
     std::string str(line);
-    tokenize(str, ",", ndpoints, lines);
+    int pos = str.find(del) + del.size();
+    str.erase(0, pos);
+    int end = str.find_last_not_of(del);
+    str = str.substr(0, end + 1);
+    tokenize(str, del, ndpoints, lines);
 
     //std::cerr << ndpoints[0][lines].x << "," << ndpoints[0][lines].y << "," << ndpoints[0][lines].z << std::endl;
     //std::cerr << ndpoints[1][lines].x << "," << ndpoints[1][lines].y << "," << ndpoints[1][lines].z << std::endl;
     lines++;
+    if (lines == enteredNumPoints) {
+      break;
+    }
   }
 
   file.close();
@@ -425,6 +440,46 @@ void readData(RTNNState& state) {
   }
 }
 
+void readDataByDim(RTNNState& state) {
+  state.h_ndpoints = read_pc_data(state.pfile.c_str(), &state.numPoints, &state.dim, state.enteredNumPoints);
+  state.h_ndqueries = state.h_ndpoints;
+  state.numQueries = state.numPoints;
+  
+  state.h_points = (float3*) malloc(state.numPoints * sizeof(float3));
+
+  if (!state.samepq) { // if can't share the host memory
+    if (!state.qfile.empty()) {
+      // if the underlying data are different, read it
+      state.h_ndqueries = read_pc_data(state.qfile.c_str(), &state.numQueries, &state.dim, state.enteredNumQueries);
+    } else {
+      // if underlying data are the same, copy it
+      state.h_ndqueries = (float3**)malloc(state.numQueries * sizeof(float3*));
+      thrust::copy(state.h_ndpoints, state.h_ndpoints+state.numQueries, state.h_ndqueries);
+    }
+    state.h_queries = (float3*) malloc(state.numQueries * sizeof(float3));
+  }
+
+  if (state.numPoints == 0 || state.numQueries == 0) {
+    fprintf(stdout, "empty query and/or points\n");
+    exit(0);
+  }
+}
+
+void setPointsByDim(RTNNState& state, int dim) {
+  for (uint64_t i = 0; i < state.numPoints; i++) {
+    state.h_points[i] = state.h_ndpoints[dim][i];
+  }
+
+  if (state.samepq) {
+    state.h_queries = state.h_points;
+  }
+  else {
+    for (uint64_t i = 0; i < state.numQueries; i++) {
+      state.h_queries[i] = state.h_ndqueries[dim][i];
+    }
+  }
+}
+
 // this function returns the width of the inscribed cube (square) of a sphere (circle)
 float maxInscribedWidth(float radius, int dim) {
   if (dim == 2) return radius/sqrt(2)*2;
@@ -719,7 +774,7 @@ float calcCRRatio(RTNNState& state) {
 }
 
 void initBatches(RTNNState& state) {
-  Timing::startTiming("create data structures");
+  Timing::startTiming("\tallocate memory for batches");
   if (state.autoCR) {
     // TODO: should we just use a fixed cell size/ratio? an overly small cell
     // increases the sort cost, but probably mean little for range search. need

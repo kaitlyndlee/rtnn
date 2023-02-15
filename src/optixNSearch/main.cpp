@@ -41,6 +41,8 @@ void setDevice ( RTNNState& state ) {
   // be that much smaller than what is reported, presumably to store data
   // structures that are hidden from us.
   state.totDRAMSize -= 0.25;
+
+  warm_up_gpu(state.device_id);
 }
 
 void freeGridPointers( RTNNState& state ) {
@@ -55,7 +57,7 @@ void setupSearch( RTNNState& state ) {
 
   if (state.partition) return;
 
-  assert(state.numOfBatches == -1);
+  // assert(state.numOfBatches == -1);
   state.numOfBatches = 1;
 
   state.numActQueries[0] = state.numQueries;
@@ -64,7 +66,7 @@ void setupSearch( RTNNState& state ) {
   state.launchRadius[0] = state.radius;
 }
 
-void originalRTNN(RTNNState& state) {
+void startSearch(RTNNState& state) {
   if (state.interleave) {
     for (int i = 0; i < state.numOfBatches; i++) {
       // it's possible that certain batches have 0 query (e.g., state.partThd too low).
@@ -110,59 +112,15 @@ void originalRTNN(RTNNState& state) {
   }
 }
 
-void newRTNN(RTNNState& state) {
-  if (state.interleave) {
-    for (int i = 0; i < state.numOfBatches; i++) {
-      // it's possible that certain batches have 0 query (e.g., state.partThd too low).
-      if (state.numActQueries[i] == 0) continue;
-    // TODO: group buildGas together to allow overlapping; this would allow
-    // us to batch-free temp storages and non-compacted gas storages. right
-    // now free storage serializes gas building.
-      createGeometry(state, i, state.launchRadius[i]/state.gsrRatio); // batch_id ignored if not partition.
-    }
-
-    for (int i = 0; i < state.numOfBatches; i++) {
-      if (state.numActQueries[i] == 0) continue;
-      if (state.qGasSortMode) gasSortSearch(state, i);
-    }
-
-    for (int i = 0; i < state.numOfBatches; i++) {
-      if (state.numActQueries[i] == 0) continue;
-      if (state.qGasSortMode && state.gsrRatio != 1)
-        createGeometry(state, i, state.launchRadius[i]);
-    }
-
-    for (int i = 0; i < state.numOfBatches; i++) {
-      if (state.numActQueries[i] == 0) continue;
-      // TODO: when K is too big, we can't launch all rays together. split rays.
-      search(state, i);
-    }
-  } else {
-    for (int i = 0; i < state.numOfBatches; i++) {
-      if (state.numActQueries[i] == 0) continue;
-
-      // create the GAS using the current order of points and the launchRadius of the current batch.
-      // TODO: does it make sense to have per-batch |gsrRatio|?
-      createGeometry (state, i, state.launchRadius[i]/state.gsrRatio); // batch_id ignored if not partition.
-
-      if (state.qGasSortMode) {
-        gasSortSearch(state, i);
-        if (state.gsrRatio != 1)
-          createGeometry (state, i, state.launchRadius[i]);
-      }
-
-      search(state, i);
-    }
-  }
-}
-
 int main( int argc, char* argv[] )
 {
   RTNNState state;
-
   parseArgs( state, argc, argv );
 
-  readData(state);
+  Timing::startTiming("read the whole data");
+    readDataByDim(state);
+  Timing::stopTiming(true);
+
 
   std::cout << "========================================" << std::endl;
   std::cout << "numPoints: " << state.numPoints << std::endl;
@@ -191,53 +149,74 @@ int main( int argc, char* argv[] )
   try
   {
     setDevice(state);
-
     Timing::reset();
-    uploadData(state);
+    
+    // Allocate data once and reuse the memory for every third dimension
+    Timing::startTiming("allocate points and queries device pointers");
+      thrust::device_ptr<float3> d_points_ptr;
+      thrust::device_ptr<float3> d_queries_ptr;
+      allocateData(state, &d_points_ptr, &d_queries_ptr);
+    Timing::stopTiming(true);
 
-    // printf("----------\nInput Data\n");
-    // for (int p = 0; p < state.numPoints; p++) {
-    //   std::cout << state.h_points[p].x << ", " << state.h_points[p].y << ", " << state.h_points[p].z << std::endl;
-    // }
-    // printf("----------\n");
-    // for (int q = 0; q < state.numQueries; q++) {
-    //   std::cout << state.h_queries[q].x << ", " << state.h_queries[q].y << ", " << state.h_queries[q].z << std::endl;
-    // }
-    // printf("----------\n");
-
-    // printf("Number of batches: %d\n", state.numOfBatches);
-    // calcMemoryUsage(state);
-
-    // call this after set device.
-    initBatches(state);
-
-    setupOptiX(state);
+    Timing::startTiming("setup optix and batching");
+      initBatches(state);
+      setupOptiX(state);
+    Timing::stopTiming(true);
 
     Timing::startTiming("total search");
+    char str[100];
+    for (int dim = 0; dim < state.dim / 3; dim++) {
+      printf("========================================\n");
+      sprintf(str, "dim %d search", dim);
+      Timing::startTiming(str);
+        Timing::startTiming("\tcopy points/queries to device");
+          state.currentDim = dim;
+          setPointsByDim(state, dim);
+          uploadData(state, &d_points_ptr, &d_queries_ptr);
+        Timing::stopTiming(true);
 
-    // TODO: streamline the logic of partition and sorting.
-    sortParticles(state, QUERY, state.querySortMode);
+          // printf("----------\nInput Data\n");
+          // for (int p = 0; p < state.numPoints; p++) {
+          //   std::cout << state.h_points[p].x << ", " << state.h_points[p].y << ", " << state.h_points[p].z << std::endl;
+          // }
+          // printf("----------\n");
+          // for (int q = 0; q < state.numQueries; q++) {
+          //   std::cout << state.h_queries[q].x << ", " << state.h_queries[q].y << ", " << state.h_queries[q].z << std::endl;
+          // }
+          // printf("----------\n");
 
-    // samepq indicates same underlying data and sorting mode, in which case
-    // queries have been sorted so no need to sort them again.
-    if (!state.samepq) sortParticles(state, POINT, state.pointSortMode);
+          // calcMemoryUsage(state);
 
-    // early free done here too
-    setupSearch(state);
+        Timing::startTiming("\tsort points and queries");
+          // TODO: streamline the logic of partition and sorting.
+          sortParticles(state, QUERY, state.querySortMode);
 
-    // newRTNN(state);
-    originalRTNN(state);
-    
+          // samepq indicates same underlying data and sorting mode, in which case
+          // queries have been sorted so no need to sort them again.
+          if (!state.samepq) sortParticles(state, POINT, state.pointSortMode);
+        Timing::stopTiming(true);
+        
+        Timing::startTiming("\tsetup search");
+          // early free done here too
+          setupSearch(state);
+        Timing::stopTiming(true);
+
+        startSearch(state);
+      Timing::stopTiming(true);
+
+      if(state.sanCheck) sanityCheck(state);
+    }
+      
     CUDA_SYNC_CHECK();
     Timing::stopTiming(true);
 
-    // printf("Before bruteforce check\n");
     Timing::startTiming("brute force search time");
-    bruteForceSearch(state.h_points, state.h_queries, state.radius, state.numPoints, state.numQueries, state.params.limit);
+      bruteForceSearch(state.h_points, state.h_queries, state.radius, state.numPoints, state.numQueries, state.params.limit);
     Timing::stopTiming(true);
 
-    if(state.sanCheck) sanityCheck(state);
-    cleanupState(state);
+    Timing::startTiming("cleanup the state");
+      cleanupState(state);
+    Timing::stopTiming(true);
   }
   catch( std::exception& e )
   {

@@ -98,6 +98,14 @@ void fillByValue(thrust::device_ptr<unsigned int> d_src_ptr, uint64_t N, int val
   thrust::fill(d_src_ptr, d_src_ptr + N, value);
 }
 
+void fillByValue(thrust::device_ptr<double> d_src_ptr, uint64_t N, double value) {
+  thrust::fill(d_src_ptr, d_src_ptr + N, value);
+}
+
+double reduce(thrust::device_ptr<double> d_src_ptr, uint64_t N) {
+  return thrust::reduce(d_src_ptr, d_src_ptr + N);
+}
+
 struct is_nonzero
 {
   __host__ __device__

@@ -21,39 +21,34 @@ void splitRays(RTNNState& state, thrust::device_ptr<float3> d_actQs, uint64_t ba
 
 void search(RTNNState& state, int batch_id) {
   printf("Available mem: %f\n", calcMemUsage(state));
-  Timing::startTiming("batch search");
+  Timing::startTiming("\tbatch search");
     
-    Timing::startTiming("\tallocate memory");
-      unsigned int numSplit = 10;
+    Timing::startTiming("\t\tallocate memory for search");
+      unsigned int numSplit = 1;
       uint64_t numQueries = state.numActQueries[batch_id] / numSplit;
       thrust::device_ptr<float3> d_actQs;
       allocThrustDevicePtr(&d_actQs, numQueries, &state.d_pointers);
 
       state.params.limit = state.knn;
       thrust::device_ptr<unsigned int> output_buffer;
-      // TODO: Change to uint64_t;
       allocThrustDevicePtr(&output_buffer, numQueries * state.params.limit, &state.d_pointers);
 
-      // Store iterator as uint64_t
-
       thrust::device_ptr<double> dist_buffer;
-      state.params.distances = allocThrustDevicePtr(&dist_buffer, state.numActQueries[batch_id], &state.d_pointers);
-      // thrust::fill(dist_buffer, dist_buffer + state.numQueries, 0.0);
+      state.params.distances = allocThrustDevicePtr(&dist_buffer, numQueries, &state.d_pointers);
+      fillByValue(dist_buffer, state.numQueries, 0.0);
+      double distSumTotal = 0;
 
       //TODO: K: Break up copy
       unsigned int *data;
       cudaMallocHost(reinterpret_cast<void**>(&data), state.numActQueries[batch_id] * state.params.limit * (uint64_t) sizeof(unsigned int));
       // data = (unsigned int *) malloc(state.numActQueries[batch_id] * state.params.limit * sizeof(unsigned int));
       state.h_res[batch_id] = data;
-
-      double *distances;
-      distances = (double *) malloc(state.numActQueries[batch_id] * sizeof(double));
     Timing::stopTiming(true);
 
     for (uint64_t i = 0; i < numSplit; i++) {
-      Timing::startTiming("\tpre-search computation");
+      Timing::startTiming("\t\tpre-search computation");
         // unused slots will become UINT_MAX
-        fillByValue(output_buffer, (uint64_t) numQueries * state.params.limit, UINT_MAX);
+        fillByValue(output_buffer, numQueries * state.params.limit, UINT_MAX);
         splitRays(state, d_actQs, batch_id, numQueries, i);
 
         if (state.qGasSortMode && !state.toGather) state.params.d_r2q_map = state.d_r2q_map[batch_id];
@@ -76,47 +71,33 @@ void search(RTNNState& state, int batch_id) {
         state.params.radius = state.launchRadius[batch_id];
       Timing::stopTiming(true);
       
-      Timing::startTiming("\toptix search");
+      Timing::startTiming("\t\toptix search");
         launchSubframe( thrust::raw_pointer_cast(output_buffer), state, batch_id, numQueries, thrust::raw_pointer_cast(d_actQs));
         cudaDeviceSynchronize();
         OMIT_ON_E2EMSR( CUDA_CHECK( cudaStreamSynchronize( state.stream[batch_id] ) ) );
       Timing::stopTiming(true);
 
-      Timing::startTiming("\tresult copy D2H");
+      Timing::startTiming("\t\tresult copy D2H");
       
-        CUDA_CHECK( cudaMemcpy(
+        CUDA_CHECK( cudaMemcpyAsync(
                         &data[(i * numQueries * state.params.limit)],
                         thrust::raw_pointer_cast(output_buffer),
                         numQueries * state.params.limit * (uint64_t) sizeof(unsigned int),
-                        cudaMemcpyDeviceToHost
-                        // state.stream[batch_id]
-                        ) );
-      // OMIT_ON_E2EMSR( CUDA_CHECK( cudaStreamSynchronize( state.stream[batch_id] ) ) );
-      cudaDeviceSynchronize();
-      Timing::stopTiming(true);
-
-      Timing::startTiming("\tdistances copy D2H");
-        CUDA_CHECK( cudaMemcpyAsync(
-                        distances,
-                        thrust::raw_pointer_cast(state.params.distances),
-                        state.numActQueries[batch_id] * sizeof(double),
                         cudaMemcpyDeviceToHost,
                         state.stream[batch_id]
                         ) );
-        OMIT_ON_E2EMSR( CUDA_CHECK( cudaStreamSynchronize( state.stream[batch_id] ) ) );
+      OMIT_ON_E2EMSR( CUDA_CHECK( cudaStreamSynchronize( state.stream[batch_id] ) ) );
+        // cudaDeviceSynchronize();
+      Timing::stopTiming(true);
+
+      Timing::startTiming("\t\tdistance reduce");
+        double distSum = reduce(dist_buffer, numQueries);
+        distSumTotal += distSum;
       Timing::stopTiming(true);
     }
+    printf("Distance sum: %f\n", distSumTotal);
 
-    // TODO: K: do with thrust
-    // double d_distSum = thrust::reduce(dist_buffer, dist_buffer + state.numActQueries[batch_id]);
-    double h_distSum = 0;
-    // // thrust::copy(d_distSum, d_distSum + 1, &h_distSum);
-    for (uint64_t i = 0; i < state.numActQueries[batch_id]; i++) {
-      h_distSum += distances[i];
-    }
-    printf("New distance sum: %f\n", h_distSum);
-
-    Timing::startTiming("\tfree memory");
+    Timing::startTiming("\t\tfree memory");
       cudaFree(thrust::raw_pointer_cast(d_actQs));
       state.d_pointers.erase(state.d_pointers.find(thrust::raw_pointer_cast(d_actQs)));
 

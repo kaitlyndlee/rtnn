@@ -65,3 +65,34 @@ double bruteForceSearch(float3 *points, float3 *queries, const double epsilon, c
   printf("Brute Force sum: %f\n", totalSum);
   return totalSum;
 }
+
+__global__ void warmup(unsigned int *tmp) {
+  if (threadIdx.x == 0)
+    *tmp = 555;
+
+  return;
+}
+
+/**
+ * Warms up each GPU by allocating memory on the device, running the kernel warmup, and copying data
+ * back to the host.
+ *
+ * @param device - the device the warm up.
+ */
+void warm_up_gpu(const int device) {
+  cudaSetDevice(device);
+  unsigned int *dev_tmp;
+  unsigned int *tmp;
+  tmp = (unsigned int *) malloc(sizeof(unsigned int));
+  *tmp = 0;
+  cudaMalloc((unsigned int **) &dev_tmp, sizeof(unsigned int));
+
+  warmup<<<1, 256>>>(dev_tmp);
+
+  // copy data from device to host
+  cudaMemcpy(tmp, dev_tmp, sizeof(unsigned int), cudaMemcpyDeviceToHost);
+  cudaDeviceSynchronize();
+
+  cudaFree(dev_tmp);
+  free(tmp);
+}

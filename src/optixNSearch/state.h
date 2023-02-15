@@ -67,6 +67,7 @@ struct RTNNState
     float3**                    h_ndpoints                = nullptr;
     float3**                    h_ndqueries               = nullptr;
     int                         dim;
+    int                         currentDim;
     bool                        msr                       = true;
     bool                        sanCheck                  = false;
 
