@@ -6,6 +6,8 @@
 #include "state.h"
 #include "func.h"
 
+#define NUM_COPY_BATCHES 1
+
 void splitRays(RTNNState& state, thrust::device_ptr<float3> d_actQs, uint64_t batch_id, uint64_t raysPerSplit, uint64_t splitNum) {
   // TODO: extra rays
   // printf("Rays per split: %d, split num: %d, batch id: %d\n", raysPerSplit, splitNum, batch_id);
@@ -19,37 +21,46 @@ void splitRays(RTNNState& state, thrust::device_ptr<float3> d_actQs, uint64_t ba
     //     std::cout << h_actQs[i].x << " " << h_actQs[i].y << " " << h_actQs[i].z << std::endl;
 }
 
-void search(RTNNState& state, int batch_id) {
-  printf("Available mem: %f\n", calcMemUsage(state));
+void search(RTNNState& state, int batch_id) { 
+  // printf("Available mem: %f\n", calcMemUsage(state));
   Timing::startTiming("\tbatch search");
     
-    Timing::startTiming("\t\tallocate memory for search");
+    Timing::startTiming("\t\tallocate active queries and output buffer for search");
       unsigned int numSplit = 1;
       uint64_t numQueries = state.numActQueries[batch_id] / numSplit;
       thrust::device_ptr<float3> d_actQs;
       allocThrustDevicePtr(&d_actQs, numQueries, &state.d_pointers);
+    Timing::stopTiming(true);
 
+    Timing::startTiming("\t\tallocate device output buffer for search");
       state.params.limit = state.knn;
+      state.params.currentDim = state.currentDim;
       thrust::device_ptr<unsigned int> output_buffer;
       allocThrustDevicePtr(&output_buffer, numQueries * state.params.limit, &state.d_pointers);
+    Timing::stopTiming(true);
 
-      thrust::device_ptr<double> dist_buffer;
-      state.params.distances = allocThrustDevicePtr(&dist_buffer, numQueries, &state.d_pointers);
-      fillByValue(dist_buffer, state.numQueries, 0.0);
-      double distSumTotal = 0;
 
-      //TODO: K: Break up copy
+    Timing::startTiming("\t\tallocate host output buffer for search");
+      //TODO: K: FIX THE BATCH COPY, THIS IS WHERE THE ERROR IS!
+      // uint64_t batchCopySize = (numQueries * state.params.limit) / (uint64_t) NUM_COPY_BATCHES;
+      // printf("Batch copy size: %lu\n", batchCopySize);
       unsigned int *data;
       cudaMallocHost(reinterpret_cast<void**>(&data), state.numActQueries[batch_id] * state.params.limit * (uint64_t) sizeof(unsigned int));
-      // data = (unsigned int *) malloc(state.numActQueries[batch_id] * state.params.limit * sizeof(unsigned int));
+      // data = (unsigned int *) malloc(state.numActQueries[batch_id] * state.params.limit * (uint64_t) sizeof(unsigned int));
+      // for (uint64_t i = 0; i < numQueries * state.params.limit; i++) {
+      //   data[i] = UINT_MAX;
+      // }
+
       state.h_res[batch_id] = data;
     Timing::stopTiming(true);
 
     for (uint64_t i = 0; i < numSplit; i++) {
-      Timing::startTiming("\t\tpre-search computation");
+      Timing::startTiming("\t\tsplit queries");
         // unused slots will become UINT_MAX
         fillByValue(output_buffer, numQueries * state.params.limit, UINT_MAX);
         splitRays(state, d_actQs, batch_id, numQueries, i);
+        state.params.numActQs = numQueries;
+        state.params.batchId = i;
 
         if (state.qGasSortMode && !state.toGather) state.params.d_r2q_map = state.d_r2q_map[batch_id];
         else state.params.d_r2q_map = nullptr; // if no GAS-sorting or has done gather, this map is null.
@@ -70,7 +81,7 @@ void search(RTNNState& state, int batch_id) {
 
         state.params.radius = state.launchRadius[batch_id];
       Timing::stopTiming(true);
-      
+
       Timing::startTiming("\t\toptix search");
         launchSubframe( thrust::raw_pointer_cast(output_buffer), state, batch_id, numQueries, thrust::raw_pointer_cast(d_actQs));
         cudaDeviceSynchronize();
@@ -78,24 +89,45 @@ void search(RTNNState& state, int batch_id) {
       Timing::stopTiming(true);
 
       Timing::startTiming("\t\tresult copy D2H");
-      
-        CUDA_CHECK( cudaMemcpyAsync(
-                        &data[(i * numQueries * state.params.limit)],
-                        thrust::raw_pointer_cast(output_buffer),
-                        numQueries * state.params.limit * (uint64_t) sizeof(unsigned int),
-                        cudaMemcpyDeviceToHost,
-                        state.stream[batch_id]
-                        ) );
+
+        // for (uint64_t b = 0; b < NUM_COPY_BATCHES; b++) {
+        // TODO: K: reuse data for the next dimensions
+          CUDA_CHECK( cudaMemcpyAsync(
+                          &data[(i * numQueries * state.params.limit)],
+                          thrust::raw_pointer_cast(output_buffer),
+                          numQueries * state.params.limit * (uint64_t) sizeof(unsigned int),
+                          cudaMemcpyDeviceToHost,
+                          state.stream[batch_id]
+                          ) );
+
+          // CUDA_CHECK( cudaMemcpyAsync(
+          //       data,
+          //       &thrust::raw_pointer_cast(output_buffer)[batchCopySize * b],
+          //       batchCopySize * (uint64_t) sizeof(unsigned int),
+          //       cudaMemcpyDeviceToHost,
+          //       state.stream[batch_id]
+          //       ) );
+
+          // for (uint64_t j = 0; j < numQueries * state.params.limit; j++) {
+          //   state.h_res[batch_id][j] = data[j];
+          // }
+        // }
+        
       OMIT_ON_E2EMSR( CUDA_CHECK( cudaStreamSynchronize( state.stream[batch_id] ) ) );
-        // cudaDeviceSynchronize();
+      // cudaDeviceSynchronize();
+      // cudaFreeHost(data);
       Timing::stopTiming(true);
 
-      Timing::startTiming("\t\tdistance reduce");
-        double distSum = reduce(dist_buffer, numQueries);
-        distSumTotal += distSum;
-      Timing::stopTiming(true);
+      // Timing::startTiming("\t\ttransferring distances D2H");
+      //   thrust::copy(thrust::device_pointer_cast(state.params.distances), thrust::device_pointer_cast(state.params.distances) + state.numQueries * state.params.limit, state.distances);
+      // Timing::stopTiming(true);
+
+      // Timing::startTiming("\t\tdistance reduce");
+      //   double distSum = reduce(dist_buffer, numQueries);
+      //   distSumTotal += distSum;
+      // Timing::stopTiming(true);
     }
-    printf("Distance sum: %f\n", distSumTotal);
+    // printf("Distance sum: %f\n", distSumTotal);
 
     Timing::startTiming("\t\tfree memory");
       cudaFree(thrust::raw_pointer_cast(d_actQs));

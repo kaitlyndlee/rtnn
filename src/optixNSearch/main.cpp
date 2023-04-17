@@ -150,6 +150,8 @@ int main( int argc, char* argv[] )
   {
     setDevice(state);
     Timing::reset();
+
+    printf("Available memory: %f GB\n", calcMemUsage(state));
     
     // Allocate data once and reuse the memory for every third dimension
     Timing::startTiming("allocate points and queries device pointers");
@@ -158,10 +160,20 @@ int main( int argc, char* argv[] )
       allocateData(state, &d_points_ptr, &d_queries_ptr);
     Timing::stopTiming(true);
 
+    // Allocate space to store the accumulated distances for each pair of queries/points.
+    Timing::startTiming("allocate distance pointers");
+      allocateDistances(state);
+    Timing::stopTiming(true);
+
     Timing::startTiming("setup optix and batching");
       initBatches(state);
       setupOptiX(state);
     Timing::stopTiming(true);
+
+    // TODO: K: Make sure that this works with batching
+    // Timing::startTiming("allocate host result array");
+    //   allocResultArray(state);
+    // Timing::stopTiming(true);
 
     Timing::startTiming("total search");
     char str[100];
@@ -169,9 +181,22 @@ int main( int argc, char* argv[] )
       printf("========================================\n");
       sprintf(str, "dim %d search", dim);
       Timing::startTiming(str);
-        Timing::startTiming("\tcopy points/queries to device");
+        Timing::startTiming("\tset points and queries");
           state.currentDim = dim;
           setPointsByDim(state, dim);
+        Timing::stopTiming(true);
+
+        if (dim != 0) {
+          Timing::startTiming("\treduce points and queries");
+            reduceData(state);
+          Timing::stopTiming(true);
+        }
+        if (state.numPoints == 0 || state.numQueries == 0) {
+          Timing::stopTiming(true);
+          break;
+        }
+        
+        Timing::startTiming("\tcopy points/queries to device");
           uploadData(state, &d_points_ptr, &d_queries_ptr);
         Timing::stopTiming(true);
 
@@ -203,15 +228,15 @@ int main( int argc, char* argv[] )
 
         startSearch(state);
       Timing::stopTiming(true);
-
-      if(state.sanCheck) sanityCheck(state);
     }
-      
+
     CUDA_SYNC_CHECK();
     Timing::stopTiming(true);
 
+    if(state.sanCheck) sanityCheck(state);
+
     Timing::startTiming("brute force search time");
-      bruteForceSearch(state.h_points, state.h_queries, state.radius, state.numPoints, state.numQueries, state.params.limit);
+      bruteForceSearch(state.h_ndpoints, state.h_ndqueries, state.radius, state.enteredNumPoints, state.enteredNumQueries, state.params.limit, state.dim);
     Timing::stopTiming(true);
 
     Timing::startTiming("cleanup the state");

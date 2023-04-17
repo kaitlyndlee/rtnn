@@ -459,6 +459,19 @@ void readDataByDim(RTNNState& state) {
     state.h_queries = (float3*) malloc(state.numQueries * sizeof(float3));
   }
 
+  // state.dim = 3;
+  state.params.lastDim = state.dim / 3;
+
+  // state.pointMap = (unsigned int *) malloc(state.numPoints * sizeof(unsigned int));
+  // state.queryMap = (unsigned int *) malloc(state.numQueries * sizeof(unsigned int));
+  // for (int i = 0; i < state.numPoints; i++) {
+  //   state.pointMap[i] = UINT_MAX;
+  // }
+
+  // for (int i = 0; i < state.numQueries; i++) {
+  //   state.queryMap[i] = UINT_MAX;
+  // }
+
   if (state.numPoints == 0 || state.numQueries == 0) {
     fprintf(stdout, "empty query and/or points\n");
     exit(0);
@@ -636,9 +649,10 @@ float calcMemUsage(RTNNState& state) {
 
   // +1 to include the space for initial search which always returns 1 element
   float returnDataSize = Q * (state.knn + 1) * sizeof(unsigned int);
+  float distancesSize = Q * state.knn * sizeof(float);
 
   float spaceAvail = state.totDRAMSize * 1024 * 1024 * 1024 -
-      returnDataSize - particleDataSize - state.gpuMemUsed * 1024 * 1024;
+      returnDataSize - particleDataSize - distancesSize - state.gpuMemUsed * 1024 * 1024;
   return spaceAvail / 1024 / 1024 / 1024;
 }
 

@@ -98,13 +98,18 @@ void fillByValue(thrust::device_ptr<unsigned int> d_src_ptr, uint64_t N, int val
   thrust::fill(d_src_ptr, d_src_ptr + N, value);
 }
 
-void fillByValue(thrust::device_ptr<double> d_src_ptr, uint64_t N, double value) {
+void fillByValue(thrust::device_ptr<float> d_src_ptr, uint64_t N, float value) {
   thrust::fill(d_src_ptr, d_src_ptr + N, value);
 }
 
-double reduce(thrust::device_ptr<double> d_src_ptr, uint64_t N) {
+float reduce(thrust::device_ptr<float> d_src_ptr, uint64_t N) {
   return thrust::reduce(d_src_ptr, d_src_ptr + N);
 }
+
+// thrust::device_ptr<float> remove(thrust::device_ptr<float> d_src_ptr, uint64_t N, float valueToRemove) {
+//   return thrust::remove(d_src_ptr, d_src_ptr + N, valueToRemove);
+// }
+
 
 struct is_nonzero
 {
@@ -141,6 +146,18 @@ struct isSameID
     }
 };
 
+struct isNotEqualTo
+{
+    float kValue;
+    isNotEqualTo(float value) {kValue = value;}
+
+  __host__ __device__
+    bool operator()(const float x)
+    {
+      return (x != kValue);
+    }
+};
+
 struct isInRange
 {
     int kmin, kmax;
@@ -166,6 +183,10 @@ struct isInRange3D
       else return !(point <= kmax && point >= kmin);
     }
 };
+
+void copyIfNotEqual(thrust::device_ptr<float> src, uint64_t N, float* dest, float value) {
+  thrust::copy_if(src, src + N, dest, isNotEqualTo(value));
+}
 
 void copyIfIdMatch(float3* source, unsigned int N, thrust::device_ptr<int> mask, thrust::device_ptr<float3> dest, int id) {
     thrust::copy_if(thrust::device_pointer_cast(source),

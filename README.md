@@ -142,3 +142,5 @@ Range search is always exact (it's fast enough). Whether/how to approximate KNN 
 ## License
 
 The code is released under the MIT license. See the `LICENSE` file for the details.
+
+#bin/optixNSearch -f ~/dataset_fixed_len_pts_NDIM_6_pts_10000000_normalize_0_1.txt -sm radius -d 0 -r .01  -np 40000 -k 40000 -nq 40000 -q ~/dataset_fixed_len_pts_NDIM_6_pts_10000000_normalize_0_1.txt  -p 0 -s 0 -ps 0 -qs 0 -c 1  > r_01.txt

@@ -57,8 +57,12 @@ struct Params
     unsigned int*       frame_buffer;
     float3*             points;
     float3*             queries;
-    double*             distances;
+    float*              distances;
+    unsigned long       numActQs;
+    unsigned int        batchId;
     float               radius;
+    unsigned int        currentDim;
+    unsigned int        lastDim;
     unsigned int*       d_r2q_map;
     unsigned long       limit; // 1 for the initial run to sort indices; knn for future runs.
     SearchType          mode;

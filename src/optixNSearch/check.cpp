@@ -105,41 +105,43 @@ void sanityCheckRadius( RTNNState& state, int batch_id ) {
   // TODO: now use knn rather than limit. good?
 
   double totalSum = 0;
-  unsigned int totalNeighbors = 0;
+  unsigned int totalNeighbors = state.enteredNumQueries;
   unsigned int totalWrongNeighbors = 0;
   double totalWrongDist = 0;
-  for (unsigned int q = 0; q < state.numQueries; q++) {
+  for (unsigned int q = 0; q < state.numQueries; q++) { 
     // std::cout << "Query: " << q << std::endl;
     for (unsigned int n = 0; n < state.knn; n++) {
+      float dists = 0;
       unsigned int p = reinterpret_cast<unsigned int*>( state.h_res[batch_id] )[ q * state.knn + n ];
       //std::cout << p << std::endl; break;
       if (p == UINT_MAX) break;
       else {
         // std::cout << "\tPoint: " << p << std::endl;
         totalNeighbors++;
-        float3 diff = state.h_points[p] - state.h_queries[q];
-        float dists = dot(diff, diff);
-        totalSum += sqrt(dists);
-        if (dists > state.gRadius * state.gRadius) {
+        float3 diff;
+        for (int dim = 0; dim < state.dim / 3; dim++) {
+          diff = state.h_ndpoints[dim][p] - state.h_ndqueries[dim][q];
+          dists += dot(diff, diff);
+        }
+        dists = sqrt(dists);
+        totalSum += dists;
+        if (dists > state.gRadius) {
           fprintf(stdout, "Point %u [%f, %f, %f] is not a neighbor of query %u [%f, %f, %f]. Dist is %lf.\n",
             p, state.h_points[p].x, state.h_points[p].y, state.h_points[p].z,
             q, state.h_queries[q].x, state.h_queries[q].y, state.h_queries[q].z,
-            sqrt(dists));
+            dists);
           totalWrongNeighbors++;
-          totalWrongDist += sqrt(dists);
-          exit(1);
+          totalWrongDist += dists;
         }
-        //std::cout << sqrt(dists) << " ";
       }
-      //std::cout << p << " ";
     }
-    //std::cout << "\n";
   }
-  printf("Total sum: %f\n", totalSum);
-  std::cerr << "Sanity check done." << std::endl;
-  std::cerr << "Avg neighbor/query: " << (float)totalNeighbors/state.numQueries << std::endl;
-  std::cerr << "Total wrong neighbors: " << totalWrongNeighbors << std::endl;
+  printf("Optix distance sum: %f\n", totalSum);
+  std::cout << "Total Neighbors: " << totalNeighbors << std::endl;
+  std::cout << "Avg neighbor/query: " << (float)totalNeighbors/state.enteredNumQueries << std::endl;
+  std::cout << "Total wrong neighbors: " << totalWrongNeighbors << std::endl;
   if (totalWrongNeighbors != 0) std::cerr << "Avg wrong dist: " << totalWrongDist / totalWrongNeighbors << std::endl;
+  std::cout << "Sanity check done.\n" << std::endl;
 }
 
 void checkFilteredQueries(RTNNState& state) {

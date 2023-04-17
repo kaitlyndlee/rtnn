@@ -45,6 +45,7 @@
 #include <cstdlib>
 #include <queue>
 #include <unordered_set>
+#include <omp.h>
 
 #include "optixNSearch.h"
 #include "state.h"
@@ -114,6 +115,13 @@ void filterRemoteQueries ( RTNNState& state ) {
   state.Max = fmaxf(state.qMax, state.pMax);
 }
 
+void allocateDistances(RTNNState &state) {
+  thrust::device_ptr<float> d_distance_ptr;
+  state.params.distances =
+      allocThrustDevicePtr(&d_distance_ptr, state.numQueries * state.knn, &state.d_pointers);
+  fillByValue(d_distance_ptr, state.numQueries * state.knn, -1.0);
+}
+
 void allocateData(RTNNState &state, thrust::device_ptr<float3> *d_points_ptr, thrust::device_ptr<float3> *d_queries_ptr) {
   // Allocate device memory for points/queries
   state.params.points =
@@ -123,6 +131,88 @@ void allocateData(RTNNState &state, thrust::device_ptr<float3> *d_points_ptr, th
     state.params.queries = allocThrustDevicePtr(
           d_queries_ptr, state.numQueries, &state.d_pointers);
   }
+}
+
+void allocResultArray(RTNNState &state) {
+  state.h_res[0] = (unsigned int *) malloc(state.numQueries * state.knn * (uint64_t) sizeof(unsigned int));
+  // for (int i = 0; i < 1; i++) {
+  //   state.h_res[i] = (unsigned int *) malloc(state.numQueries * state.knn* (uint64_t) sizeof(unsigned int));
+  // }
+}
+
+//LEFT OFF HERE, need to do this because distances 0 out every dim
+// TODO: K: remove self joins
+// TODO: K: Add in batching
+// void reduceData(RTNNState &state, float3 *newQueries, float3 *newPoints, unsigned int *queryMapping, unsigned int *pointMapping) {
+void reduceData(RTNNState &state) {
+  bool *pointIsNeighbor = (bool *) malloc(state.numPoints * sizeof(bool));
+  memset(pointIsNeighbor, false, state.numPoints * sizeof(bool));
+
+  bool *queryHasNeighbor = (bool *) malloc(state.numQueries * sizeof(bool));
+  memset(queryHasNeighbor, false, state.numQueries * sizeof(bool));
+
+  // Reduce queries
+  unsigned int queryCount = 0;
+  unsigned int pointCount = 0;
+  for (unsigned int queryIdx = 0; queryIdx < state.numQueries; queryIdx++) {
+    for (unsigned int pointIdx = 0; pointIdx < state.params.limit; pointIdx++) {
+      unsigned int p = reinterpret_cast<unsigned int*>(state.h_res[0])[queryIdx * state.params.limit + pointIdx];
+       if (p == UINT_MAX) {
+        break;
+      }
+
+      // Left off here
+      if (isClose(state.h_points[p], state.h_queries[queryIdx])) {
+        continue;
+      }
+
+      if (!pointIsNeighbor[p]) {
+          pointCount++;
+          pointIsNeighbor[p] = true;
+      }
+      
+      queryHasNeighbor[queryIdx] = true;
+    }
+    if (queryHasNeighbor[queryIdx]) {
+      queryCount++;
+    }
+  }
+
+  printf("New num queries: %u, new num points: %u\n", queryCount, pointCount);
+  
+  if (queryCount == 0 || pointCount == 0) {
+    state.numQueries = queryCount;
+    state.numPoints = pointCount;
+    return;
+  }
+
+  float3 *newQueries = (float3 *) malloc(queryCount * sizeof(float3));
+  unsigned int count = 0;
+  for (unsigned int queryIdx = 0; queryIdx < state.numQueries; queryIdx++) {
+    if (queryHasNeighbor[queryIdx]) {
+      newQueries[count] = state.h_queries[queryIdx];
+      count++;
+    }
+  }
+  state.numQueries = queryCount;
+  free(state.h_queries);
+  state.h_queries = newQueries;
+
+  // Reduce points
+  float3 *newPoints = (float3 *) malloc(pointCount * sizeof(float3));
+  count = 0;
+  for (unsigned int pointIdx = 0; pointIdx < state.numPoints; pointIdx++) {
+    if (pointIsNeighbor[pointIdx]) {
+      newPoints[count] = state.h_points[pointIdx];
+      count++;
+    }
+  }
+  state.numPoints = pointCount;
+  free(state.h_points);
+  state.h_points = newPoints;
+  
+  free(queryHasNeighbor);
+  free(pointIsNeighbor);
 }
 
 void uploadData ( RTNNState& state ) {
@@ -438,8 +528,8 @@ static void createMissProgram( RTNNState &state, std::vector<OptixProgramGroup> 
     OptixProgramGroupOptions    miss_prog_group_options = {};
     OptixProgramGroupDesc       miss_prog_group_desc = {};
     miss_prog_group_desc.kind   = OPTIX_PROGRAM_GROUP_KIND_MISS;
-    miss_prog_group_desc.miss.module             = nullptr;
-    miss_prog_group_desc.miss.entryFunctionName  = nullptr;
+    miss_prog_group_desc.miss.module             = state.geometry_module;
+    miss_prog_group_desc.miss.entryFunctionName  = "__miss__radius";
 
     char    log[2048];
     size_t  sizeof_log = sizeof( log );
@@ -676,6 +766,7 @@ void cleanupState( RTNNState& state )
       CUDA_CHECK( cudaStreamDestroy(state.stream[i]) );
 
       CUDA_CHECK( cudaFreeHost(state.h_res[i] ) );
+      // free(state.h_res[i]);
       delete state.h_actQs[i];
 
       // CUDA_CHECK( cudaFree( state.d_temp_buffer_gas[i] ) );
@@ -698,6 +789,8 @@ void cleanupState( RTNNState& state )
     delete state.d_buffer_temp_output_gas_and_compacted_size;
     delete state.d_r2q_map;
     delete state.h_points;
+    // delete state.queryMap;
+    // delete state.pointMap;
 
     CUDA_CHECK( cudaFree( reinterpret_cast<void*>( state.sbt.raygenRecord       ) ) );
     CUDA_CHECK( cudaFree( reinterpret_cast<void*>( state.sbt.missRecordBase     ) ) );

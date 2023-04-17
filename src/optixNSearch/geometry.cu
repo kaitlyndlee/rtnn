@@ -38,10 +38,24 @@ __constant__ Params params;
 extern "C" __device__ bool check_intersect(SearchType mode)
 {
   unsigned long long primIdx = optixGetPrimitiveIndex();
+  unsigned long long queryIdx = optixGetPayload_0() + params.batchId * params.numActQs;
+  unsigned long long distIdx = queryIdx * params.limit + primIdx;
+
+  if (queryIdx == primIdx) {
+    return false;
+  }
+
+  // If the query/point pair were not neighbors in the previous dimensions,
+  // they will not be neighbors in this dimension.
+  if (params.currentDim != 0 && params.distances[distIdx] == -1.0) {
+    return false;
+  }
+
   const float3 center = params.points[primIdx];
   const float3 ray_orig = optixGetWorldRayOrigin();
 
   bool intersect = false;
+  
   if (mode == AABBTEST) {
     float3 topRight = center + params.radius;
     float3 bottomLeft = center - params.radius;
@@ -59,15 +73,21 @@ extern "C" __device__ bool check_intersect(SearchType mode)
 
   } else {
     float3 O = ray_orig - center;
-    float sqdist = dot(O, O);
-    unsigned long long queryIdx = optixGetPayload_0();
+    float sqDist = dot(O, O);
       // printf("Point: %d, [%f, %f, %f] query: %u, [%f, %f, %f], dist: %f\n", primIdx, center.x, center.y, center.z, queryIdx, ray_orig.x, ray_orig.y, ray_orig.z, sqdist);
+    
+      // printf("Distance: %f\n", params.distances[distIdx]);
 
-    // first check excludes the query itself; same as (ray_orig != center)
-    if (sqdist < params.radius * params.radius) {
+    float tempDist = ((params.currentDim == 0) ? 0.0 : params.distances[distIdx]);
+    // printf("Query id: %llu, prim id: %llu, temp dist: %f\n", queryIdx, primIdx, tempDist);
+    tempDist += sqDist;
+    // printf("Current dim: %u, Query id: %llu, prim id: %llu, distance: %f\n", params.currentDim, queryIdx, primIdx, tempDist);
+    if (tempDist < params.radius * params.radius) {
+      params.distances[distIdx] = tempDist;
       intersect = true;
-      // TODO: K: does this cause a race condition?
-      params.distances[queryIdx] += sqrtf(sqdist);
+    }
+    else {
+      params.distances[distIdx] = -1.0;
     }
   }
 
@@ -198,5 +218,13 @@ extern "C" __global__ void __intersection__sphere_knn()
 extern "C" __global__ void __anyhit__terminateRay()
 {
   optixTerminateRay();
+}
+
+extern "C" __global__ void __miss__radius()
+{
+  unsigned long long primIdx = optixGetPrimitiveIndex();
+  unsigned long long queryIdx = optixGetPayload_0();
+  unsigned long long distIdx = queryIdx * params.limit + primIdx;
+  optixSetPayload_2(-1);
 }
 

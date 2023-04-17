@@ -87,6 +87,8 @@ cmake_minimum_required(VERSION 3.1 FATAL_ERROR)
 set(CMAKE_CXX_STANDARD 14)
 set(CMAKE_CXX_STANDARD_REQUIRED TRUE)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_VERBOSE_MAKEFILE on)
+set(CMAKE_CXX_FLAGS_RELEASE "-O3 -g")
 
 
 # As of CMake 2.6 policies were introduced in order to provide a mechanism for
@@ -151,6 +153,7 @@ option(CUDA_GENERATE_DEPENDENCIES_DURING_CONFIGURE "Generate dependencies during
 
 # Find at least a 5.0 version of CUDA.
 find_package(CUDA 5.0 REQUIRED)
+set (CUDA_PROPAGATE_HOST_FLAGS ON)
 
 # Present the CUDA_64_BIT_DEVICE_CODE on the default set of options.
 mark_as_advanced(CLEAR CUDA_64_BIT_DEVICE_CODE)
@@ -164,7 +167,7 @@ find_package(OpenMP REQUIRED)
 if(NOT PASSED_FIRST_CONFIGURE)
   list(FIND CUDA_NVCC_FLAGS "-arch" index)
   if(index EQUAL -1)
-    list(APPEND CUDA_NVCC_FLAGS -arch sm_60)
+    list(APPEND CUDA_NVCC_FLAGS -arch sm_75)
     set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} CACHE STRING "Semi-colon delimit multiple arguments." FORCE)
   endif()
 
@@ -176,11 +179,11 @@ if(NOT PASSED_FIRST_CONFIGURE)
   endif()
   
   set(flag "-lineinfo")
-  list(FIND CUDA_NVCC_FLAGS ${flag} index)
-  if(index EQUAL -1)
-    list(APPEND CUDA_NVCC_FLAGS ${flag})
-    set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} CACHE STRING "Semi-colon delimit multiple arguments." FORCE)
-  endif()
+  # list(FIND CUDA_NVCC_FLAGS ${flag} index)
+  # if(index EQUAL -1)
+  #   list(APPEND CUDA_NVCC_FLAGS ${flag})
+  #   set(CUDA_NVCC_FLAGS ${CUDA_NVCC_FLAGS} CACHE STRING "Semi-colon delimit multiple arguments." FORCE)
+  # endif()
 
   if (CUDA_VERSION VERSION_LESS "3.0")
     set(flag "--keep")
@@ -205,9 +208,9 @@ if(NOT PASSED_FIRST_CONFIGURE)
   if(CMAKE_CXX_STANDARD EQUAL 11)
     set(SAMPLES_NVRTC_CXX "-std=c++11")
   else()
-    set(SAMPLES_NVRTC_CXX "")
+    set(SAMPLES_NVRTC_CXX "-std=c++14")
   endif()
-  set(CUDA_NVRTC_FLAGS ${SAMPLES_NVRTC_CXX} -arch compute_60 -use_fast_math -lineinfo -default-device -rdc true -D__x86_64 CACHE STRING "Semi-colon delimit multiple arguments." FORCE)
+  set(CUDA_NVRTC_FLAGS ${SAMPLES_NVRTC_CXX} -arch compute_75 -use_fast_math -default-device -rdc true -D__x86_64 CACHE STRING "Semi-colon delimit multiple arguments." FORCE)
 endif(NOT PASSED_FIRST_CONFIGURE)
 
 mark_as_advanced(CUDA_NVRTC_FLAGS)
@@ -355,7 +358,6 @@ function(OPTIX_add_sample_executable target_name_base target_name_var)
     )
 
   target_compile_options(${target_name} PRIVATE $<$<COMPILE_LANGUAGE:CUDA>:
-                      #  --generate-line-info
                        --relocatable-device-code=true
                        >)
   target_link_libraries(${target_name} PRIVATE OpenMP::OpenMP_CXX)
